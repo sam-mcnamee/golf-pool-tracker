@@ -202,7 +202,12 @@ def main() -> int:
     odds = parse_odds_from_html(html)
 
     if len(odds) < 20:
-        raise RuntimeError(f"Parsed too few odds rows ({len(odds)}) from post: {title} ({url})")
+        # DK Network sometimes serves different content to servers/bots.
+        # Don't fail the workflow; just log and try again on the next scheduled run.
+        snippet = re.sub(r"\\s+", " ", html[:500])
+        print(f"WARNING: Parsed too few odds rows ({len(odds)}) from post: {title} ({url})")
+        print(f"WARNING: HTML snippet: {snippet}")
+        return 0
 
     rows = map_odds_to_golfers(sb, tournament_id, odds)
 
