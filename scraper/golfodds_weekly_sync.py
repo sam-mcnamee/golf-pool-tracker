@@ -84,6 +84,10 @@ def parse_weekly_odds_page(html: str) -> List[Tuple[str, List[OddsRow]]]:
             node = node.find_next()
             if node is None:
                 break
+            # Stop if we reach the next weekly headline section
+            if getattr(node, "name", None) == "span" and "Headline-orange" in " ".join(node.get("class") or []):
+                if node is not h:
+                    break
             if getattr(node, "name", None) == "table" and node.find(string=re.compile(r"ODDS\s+to\s+Win", re.I)):
                 table = node
                 break
