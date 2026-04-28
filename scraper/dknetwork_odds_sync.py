@@ -42,7 +42,14 @@ def http_get_text(url: str, timeout_s: int = 20, retries: int = 3) -> str:
     last: Optional[Exception] = None
     for i in range(retries):
         try:
-            r = requests.get(url, timeout=timeout_s, headers={"accept": "text/html,application/xhtml+xml"})
+            r = requests.get(
+                url,
+                timeout=timeout_s,
+                headers={
+                    "accept": "text/html,application/xhtml+xml",
+                    "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+                },
+            )
             r.raise_for_status()
             return r.text
         except Exception as e:  # noqa: BLE001
@@ -61,25 +68,44 @@ class OddsRow:
     odds_american: int
 
 
-ODDS_RE = re.compile(r"(?P<name>[A-Za-zÀ-ÖØ-öø-ÿ'’.-]+(?:\\s+[A-Za-zÀ-ÖØ-öø-ÿ'’.-]+)+)\\s+\\+?(?P<odds>\\d{2,6})\\b")
+ODDS_RE = re.compile(
+    r"(?P<name>[A-Za-zÀ-ÖØ-öø-ÿ'’.-]+(?:\\s+[A-Za-zÀ-ÖØ-öø-ÿ'’.-]+)+)\\s+\\+?(?P<odds>\\d{2,6})\\b"
+)
+
+BULLET_RE = re.compile(r"^[\\-\\*]\\s*(?P<name>.+?)\\s+\\+?(?P<odds>\\d{2,6})\\s*$")
 
 
 def parse_odds_from_html(html: str) -> List[OddsRow]:
     soup = BeautifulSoup(html, "html.parser")
     text = soup.get_text("\n")
     rows: List[OddsRow] = []
+
+    # 1) Prefer bullet list lines like "- Scottie Scheffler +295"
     for line in (ln.strip() for ln in text.splitlines()):
         if "+" not in line:
             continue
+        bm = BULLET_RE.match(line)
+        if bm:
+            name = bm.group("name").strip()
+            odds = int(bm.group("odds"))
+            if len(name) >= 6:
+                rows.append(OddsRow(name=name, odds_american=odds))
+            continue
+
         m = ODDS_RE.search(line)
-        if not m:
-            continue
-        name = m.group("name").strip()
-        odds = int(m.group("odds"))
-        # Filter obvious non-golfer lines (very short names)
-        if len(name) < 6:
-            continue
-        rows.append(OddsRow(name=name, odds_american=odds))
+        if m:
+            name = m.group("name").strip()
+            odds = int(m.group("odds"))
+            if len(name) >= 6:
+                rows.append(OddsRow(name=name, odds_american=odds))
+
+    # 2) Fallback: scan entire text in case the page is compressed into fewer lines
+    if not rows:
+        for m in ODDS_RE.finditer(text):
+            name = m.group("name").strip()
+            odds = int(m.group("odds"))
+            if len(name) >= 6:
+                rows.append(OddsRow(name=name, odds_american=odds))
 
     # Deduplicate by normalized name, keep best (lowest) odds
     best: Dict[str, OddsRow] = {}
