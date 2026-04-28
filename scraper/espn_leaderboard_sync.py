@@ -8,13 +8,16 @@ import os
 import sys
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional, Tuple
+from zoneinfo import ZoneInfo
 
 import requests
 from supabase import Client, create_client
 
 
 ESPN_ENDPOINT = "https://site.api.espn.com/apis/site/v2/sports/golf/leaderboard"
+ET = ZoneInfo("America/New_York")
 
 
 def must_env(name: str) -> str:
@@ -37,6 +40,96 @@ def espn_get_json(event_id: str, *, timeout_s: int = 20, retries: int = 3) -> Di
             time.sleep(1.5 * (i + 1))
     raise RuntimeError(f"Failed to fetch ESPN JSON after {retries} tries: {last_err}")
 
+
+def espn_get_events(*, league: str = "pga", timeout_s: int = 20, retries: int = 3) -> Dict[str, Any]:
+    url = f"{ESPN_ENDPOINT}?league={league}"
+    last_err: Optional[Exception] = None
+    for i in range(retries):
+        try:
+            r = requests.get(url, timeout=timeout_s, headers={"accept": "application/json"})
+            r.raise_for_status()
+            return r.json()
+        except Exception as e:  # noqa: BLE001
+            last_err = e
+            time.sleep(1.5 * (i + 1))
+    raise RuntimeError(f"Failed to fetch ESPN events JSON after {retries} tries: {last_err}")
+
+
+def pick_primary_event_id(events_payload: Dict[str, Any]) -> Tuple[str, str, Optional[str]]:
+    events = events_payload.get("events")
+    if not isinstance(events, list):
+        raise RuntimeError("ESPN events payload missing 'events' list")
+
+    primary = None
+    for e in events:
+        if isinstance(e, dict) and e.get("primary") is True and e.get("id") and e.get("name"):
+            primary = e
+            break
+    if primary is None:
+        # Fallback: first event that looks valid
+        for e in events:
+            if isinstance(e, dict) and e.get("id") and e.get("name"):
+                primary = e
+                break
+
+    if primary is None:
+        raise RuntimeError("Could not find a primary event in ESPN events list")
+
+    event_id = str(primary["id"])
+    name = str(primary["name"])
+    start_date = primary.get("date")
+    return (event_id, name, start_date if isinstance(start_date, str) else None)
+
+
+def compute_open_lock_from_start(start_iso: Optional[str]) -> Tuple[datetime, datetime]:
+    """
+    Given ESPN start date (ISO-ish, often '2026-04-23T04:00Z'), compute:
+    - open_at: Monday 8:00 AM ET of tournament week
+    - lock_at: Thursday 7:00 AM ET of tournament week
+    """
+    now_et = datetime.now(ET)
+    if not start_iso:
+        # Safe defaults: open now, lock in 3 days
+        return (now_et, now_et + timedelta(days=3))
+
+    s = start_iso.replace("Z", "+00:00")
+    start_utc = datetime.fromisoformat(s)
+    start_et = start_utc.astimezone(ET)
+
+    # Find Monday of that week (Mon=0)
+    monday = (start_et - timedelta(days=start_et.weekday())).replace(hour=8, minute=0, second=0, microsecond=0)
+    thursday = (monday + timedelta(days=3)).replace(hour=7, minute=0, second=0, microsecond=0)
+    return (monday, thursday)
+
+
+def ensure_current_tournament(sb: Client) -> Tuple[str, str]:
+    """
+    Ensure a tournament exists for ESPN's current/primary PGA event and return (tournament_id, espn_event_id).
+    """
+    events_payload = espn_get_events(league="pga")
+    espn_event_id, name, start_date = pick_primary_event_id(events_payload)
+    open_at_et, lock_at_et = compute_open_lock_from_start(start_date)
+
+    upsert = (
+        sb.table("tournaments")
+        .upsert(
+            {
+                "name": name,
+                "espn_event_id": espn_event_id,
+                "open_at": open_at_et.astimezone(ZoneInfo("UTC")).isoformat(),
+                "lock_at": lock_at_et.astimezone(ZoneInfo("UTC")).isoformat(),
+            },
+            on_conflict="espn_event_id",
+        )
+        .select("id,espn_event_id")
+        .single()
+        .execute()
+    )
+
+    if not upsert.data:
+        raise RuntimeError("Failed to upsert current tournament from ESPN")
+
+    return (upsert.data["id"], upsert.data["espn_event_id"])
 
 def deep_find_first_list(obj: Any, key: str) -> Optional[List[Any]]:
     if isinstance(obj, dict):
@@ -228,10 +321,13 @@ def main() -> int:
             .execute()
         )
         rows = q.data or []
-        if not rows:
-            raise RuntimeError("No active tournament found")
-        tournament_id = rows[0]["id"]
-        espn_event_id = rows[0]["espn_event_id"]
+        if rows:
+            tournament_id = rows[0]["id"]
+            espn_event_id = rows[0]["espn_event_id"]
+
+        # If no active tournament or espn_event_id isn't numeric, auto-select from ESPN.
+        if not tournament_id or not espn_event_id or not str(espn_event_id).isdigit():
+            tournament_id, espn_event_id = ensure_current_tournament(sb)
 
     payload = espn_get_json(str(espn_event_id))
     competitors = extract_competitors(payload)
