@@ -110,26 +110,22 @@ def ensure_current_tournament(sb: Client) -> Tuple[str, str]:
     espn_event_id, name, start_date = pick_primary_event_id(events_payload)
     open_at_et, lock_at_et = compute_open_lock_from_start(start_date)
 
-    upsert = (
-        sb.table("tournaments")
-        .upsert(
-            {
-                "name": name,
-                "espn_event_id": espn_event_id,
-                "open_at": open_at_et.astimezone(ZoneInfo("UTC")).isoformat(),
-                "lock_at": lock_at_et.astimezone(ZoneInfo("UTC")).isoformat(),
-            },
-            on_conflict="espn_event_id",
-        )
-        .select("id,espn_event_id")
-        .single()
-        .execute()
-    )
+    sb.table("tournaments").upsert(
+        {
+            "name": name,
+            "espn_event_id": espn_event_id,
+            "open_at": open_at_et.astimezone(ZoneInfo("UTC")).isoformat(),
+            "lock_at": lock_at_et.astimezone(ZoneInfo("UTC")).isoformat(),
+        },
+        on_conflict="espn_event_id",
+    ).execute()
 
-    if not upsert.data:
-        raise RuntimeError("Failed to upsert current tournament from ESPN")
-
-    return (upsert.data["id"], upsert.data["espn_event_id"])
+    # supabase-py doesn't consistently support select().single() chaining on upsert across versions.
+    sel = sb.table("tournaments").select("id,espn_event_id").eq("espn_event_id", espn_event_id).limit(1).execute()
+    rows = sel.data or []
+    if not rows:
+        raise RuntimeError("Failed to read back current tournament after upsert")
+    return (rows[0]["id"], rows[0]["espn_event_id"])
 
 def deep_find_first_list(obj: Any, key: str) -> Optional[List[Any]]:
     if isinstance(obj, dict):
