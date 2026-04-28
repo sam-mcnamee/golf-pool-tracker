@@ -55,7 +55,7 @@ def espn_get_events(*, league: str = "pga", timeout_s: int = 20, retries: int = 
     raise RuntimeError(f"Failed to fetch ESPN events JSON after {retries} tries: {last_err}")
 
 
-def pick_primary_event_id(events_payload: Dict[str, Any]) -> Tuple[str, str, Optional[str]]:
+def pick_primary_event(events_payload: Dict[str, Any]) -> Dict[str, Any]:
     events = events_payload.get("events")
     if not isinstance(events, list):
         raise RuntimeError("ESPN events payload missing 'events' list")
@@ -75,17 +75,14 @@ def pick_primary_event_id(events_payload: Dict[str, Any]) -> Tuple[str, str, Opt
     if primary is None:
         raise RuntimeError("Could not find a primary event in ESPN events list")
 
-    event_id = str(primary["id"])
-    name = str(primary["name"])
-    start_date = primary.get("date")
-    return (event_id, name, start_date if isinstance(start_date, str) else None)
+    return primary
 
 
 def compute_open_lock_from_start(start_iso: Optional[str]) -> Tuple[datetime, datetime]:
     """
     Given ESPN start date (ISO-ish, often '2026-04-23T04:00Z'), compute:
     - open_at: Monday 8:00 AM ET of tournament week
-    - lock_at: Thursday 7:00 AM ET of tournament week
+    - lock_at: Thursday 4:00 AM ET of tournament week
     """
     now_et = datetime.now(ET)
     if not start_iso:
@@ -98,7 +95,7 @@ def compute_open_lock_from_start(start_iso: Optional[str]) -> Tuple[datetime, da
 
     # Find Monday of that week (Mon=0)
     monday = (start_et - timedelta(days=start_et.weekday())).replace(hour=8, minute=0, second=0, microsecond=0)
-    thursday = (monday + timedelta(days=3)).replace(hour=7, minute=0, second=0, microsecond=0)
+    thursday = (monday + timedelta(days=3)).replace(hour=4, minute=0, second=0, microsecond=0)
     return (monday, thursday)
 
 
@@ -107,8 +104,23 @@ def ensure_current_tournament(sb: Client) -> Tuple[str, str]:
     Ensure a tournament exists for ESPN's current/primary PGA event and return (tournament_id, espn_event_id).
     """
     events_payload = espn_get_events(league="pga")
-    espn_event_id, name, start_date = pick_primary_event_id(events_payload)
+    primary = pick_primary_event(events_payload)
+    espn_event_id = str(primary["id"])
+    name = str(primary["name"])
+    start_date = primary.get("date") if isinstance(primary.get("date"), str) else None
+    end_date = primary.get("endDate") if isinstance(primary.get("endDate"), str) else None
     open_at_et, lock_at_et = compute_open_lock_from_start(start_date)
+
+    first_tee_at_utc: Optional[str] = None
+    if start_date:
+        s = start_date.replace("Z", "+00:00")
+        first_tee_at_utc = datetime.fromisoformat(s).astimezone(ZoneInfo("UTC")).isoformat()
+
+    starts_at_utc = first_tee_at_utc
+    ends_at_utc: Optional[str] = None
+    if end_date:
+        e = end_date.replace("Z", "+00:00")
+        ends_at_utc = datetime.fromisoformat(e).astimezone(ZoneInfo("UTC")).isoformat()
 
     sb.table("tournaments").upsert(
         {
@@ -116,6 +128,9 @@ def ensure_current_tournament(sb: Client) -> Tuple[str, str]:
             "espn_event_id": espn_event_id,
             "open_at": open_at_et.astimezone(ZoneInfo("UTC")).isoformat(),
             "lock_at": lock_at_et.astimezone(ZoneInfo("UTC")).isoformat(),
+            "first_tee_at": first_tee_at_utc,
+            "starts_at": starts_at_utc,
+            "ends_at": ends_at_utc,
         },
         on_conflict="espn_event_id",
     ).execute()
