@@ -64,7 +64,107 @@ class OddsRow:
     odds_american: int
 
 
-def parse_weekly_odds_page(html: str) -> List[Tuple[str, List[OddsRow]]]:
+def parse_odds_to_win_table(table: Any) -> List[OddsRow]:
+    raw_rows: List[Tuple[str, str]] = []
+    for tr in table.find_all("tr"):
+        tds = tr.find_all("td")
+        if len(tds) < 2:
+            continue
+        name = tds[0].get_text(" ", strip=True)
+        odds_txt = tds[1].get_text(" ", strip=True)
+        raw_rows.append((name, odds_txt))
+
+    rows: List[OddsRow] = []
+    started = False
+    for name, odds_txt in raw_rows:
+        if re.search(r"^odds\s+to\s+win", name, flags=re.I):
+            started = True
+            continue
+        if not started:
+            continue
+        if re.search(r"^tournament\s+matchups", name, flags=re.I):
+            break
+        if name.lower() in ("field", "the field", "field (all others)"):
+            continue
+
+        m = re.match(r"^(\d+)\s*/\s*(\d+)$", odds_txt)
+        if not m:
+            continue
+        num = int(m.group(1))
+        den = int(m.group(2))
+        rows.append(OddsRow(name=name.replace("\xa0", " "), odds_american=fractional_to_american(num, den)))
+
+    best: Dict[str, OddsRow] = {}
+    for r in rows:
+        k = normalize_name(r.name)
+        prev = best.get(k)
+        if prev is None or r.odds_american < prev.odds_american:
+            best[k] = r
+
+    return sorted(best.values(), key=lambda rr: rr.odds_american)
+
+
+def iter_odds_tables_after(headline: Any) -> List[Any]:
+    """
+    weekly-odds.html often contains multiple \"ODDS to Win\" tables after the main headline.
+    Collect them in document order (deduped).
+    """
+    seen = set()
+    tables: List[Any] = []
+    node = headline
+    for _ in range(20_000):
+        node = node.find_next()
+        if node is None:
+            break
+        if getattr(node, "name", None) != "table":
+            continue
+        if not node.find(string=re.compile(r"ODDS\s+to\s+Win", re.I)):
+            continue
+        tid = id(node)
+        if tid in seen:
+            continue
+        seen.add(tid)
+        tables.append(node)
+    return tables
+
+
+def pick_best_odds_table(tables: List[Any], golfer_names: List[str]) -> Tuple[Any, List[OddsRow]]:
+    if not tables:
+        raise RuntimeError("No ODDS-to-Win tables found after headline")
+
+    golfer_norm = {normalize_name(n) for n in golfer_names if normalize_name(n)}
+
+    best_table = None
+    best_rows: List[OddsRow] = []
+    best_hits = -1
+
+    for table in tables[:12]:
+        rows = parse_odds_to_win_table(table)
+        if len(rows) < 10:
+            continue
+        hits = sum(1 for r in rows if normalize_name(r.name) in golfer_norm)
+        if hits > best_hits:
+            best_hits = hits
+            best_table = table
+            best_rows = rows
+
+    if best_table is None or best_hits < 8:
+        # Last resort: take the largest parsed table (usually the PGA Tour field)
+        best_len = -1
+        for table in tables[:12]:
+            rows = parse_odds_to_win_table(table)
+            if len(rows) > best_len:
+                best_len = len(rows)
+                best_table = table
+                best_rows = rows
+
+    if best_table is None:
+        raise RuntimeError("Failed to parse any ODDS-to-Win tables")
+
+    return best_table, best_rows
+
+
+def parse_weekly_odds_page(html: str, golfer_names: List[str]) -> List[Tuple[str, List[OddsRow]]]:
     """
     Returns list of (page_title, odds_rows) for each <span class="Headline-orange">...</span> section.
     """
@@ -77,60 +177,9 @@ def parse_weekly_odds_page(html: str) -> List[Tuple[str, List[OddsRow]]]:
         if not title:
             continue
 
-        table = None
-        node = h
-        # Walk forward in document order until we find the odds table for this headline.
-        for _ in range(5000):
-            node = node.find_next()
-            if node is None:
-                break
-            # Stop if we reach the next weekly headline section
-            if getattr(node, "name", None) == "span" and "Headline-orange" in " ".join(node.get("class") or []):
-                if node is not h:
-                    break
-            if getattr(node, "name", None) == "table" and node.find(string=re.compile(r"ODDS\s+to\s+Win", re.I)):
-                table = node
-                break
-        if table is None:
-            continue
-
-        raw_rows: List[Tuple[str, str]] = []
-        for tr in table.find_all("tr"):
-            tds = tr.find_all("td")
-            if len(tds) < 2:
-                continue
-            name = tds[0].get_text(" ", strip=True)
-            odds_txt = tds[1].get_text(" ", strip=True)
-            raw_rows.append((name, odds_txt))
-
-        rows: List[OddsRow] = []
-        started = False
-        for name, odds_txt in raw_rows:
-            if re.search(r"^odds\s+to\s+win", name, flags=re.I):
-                started = True
-                continue
-            if not started:
-                continue
-            if re.search(r"^tournament\s+matchups", name, flags=re.I):
-                break
-            if name.lower() in ("field", "the field", "field (all others)"):
-                continue
-
-            m = re.match(r"^(\d+)\s*/\s*(\d+)$", odds_txt)
-            if not m:
-                continue
-            num = int(m.group(1))
-            den = int(m.group(2))
-            rows.append(OddsRow(name=name.replace("\xa0", " "), odds_american=fractional_to_american(num, den)))
-
-        best: Dict[str, OddsRow] = {}
-        for r in rows:
-            k = normalize_name(r.name)
-            prev = best.get(k)
-            if prev is None or r.odds_american < prev.odds_american:
-                best[k] = r
-
-        out.append((title, sorted(best.values(), key=lambda rr: rr.odds_american)))
+        tables = iter_odds_tables_after(h)
+        _, rows = pick_best_odds_table(tables, golfer_names=golfer_names)
+        out.append((title, rows))
 
     return out
 
@@ -220,7 +269,11 @@ def main() -> int:
 
     html = http_get_text(WEEKLY_ODDS_URL)
 
-    sections = parse_weekly_odds_page(html)
+    gq = sb.table("golfers").select("id,name").eq("tournament_id", tournament_id).execute()
+    golfers = gq.data or []
+    golfer_names = [str(g["name"]) for g in golfers]
+
+    sections = parse_weekly_odds_page(html, golfer_names=golfer_names)
     page_title, odds = pick_best_page_section(tournament_name, sections)
     if len(odds) < 20:
         print(
@@ -228,9 +281,6 @@ def main() -> int:
             f"(matched page title: {page_title!r})"
         )
         return 0
-
-    gq = sb.table("golfers").select("id,name").eq("tournament_id", tournament_id).execute()
-    golfers = gq.data or []
 
     now = datetime.now(timezone.utc).isoformat()
     rows: List[Dict[str, Any]] = []
