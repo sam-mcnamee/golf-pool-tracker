@@ -63,10 +63,10 @@ export default async function HomePage() {
                     <Link href={`/t/${t.id}/leaderboard`}>Leaderboard</Link>
                   </Button>
                   <Link
-                    href={`/t/${t.id}`}
+                    href="/team-stats"
                     className="text-center text-sm font-medium text-club-navy underline decoration-club-gold/60 underline-offset-2 hover:decoration-club-gold"
                   >
-                    Tournament page
+                    Team Stats
                   </Link>
                 </div>
               </>

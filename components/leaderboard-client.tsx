@@ -84,12 +84,24 @@ type LeaderRow = {
   teamName: string;
   personName: string;
   best4: number | null;
-  madeCut: number;
   isMc: boolean;
   picks: (PickedGolfer & { tier: number; r1_score: number | null; r2_score: number | null; r3_score: number | null; r4_score: number | null })[];
   predictedRelPar: number | null;
   tieDelta: number | null;
 };
+
+function scoreClass(value: number | null): string {
+  if (value === null) return "text-slate-500";
+  if (value < 0) return "text-emerald-700";
+  if (value > 0) return "text-red-700";
+  return "text-slate-700";
+}
+
+function formatScore(value: number | null): string {
+  if (value === null) return "-";
+  if (value > 0) return `+${value}`;
+  return String(value);
+}
 
 export function LeaderboardClient({ tournamentId }: { tournamentId: string }) {
   const [rows, setRows] = useState<LeaderRow[]>([]);
@@ -205,7 +217,7 @@ export function LeaderboardClient({ tournamentId }: { tournamentId: string }) {
       const predictedRelPar = predictedByUser.get(user_id) ?? null;
       const tieDelta = tiebreakDistanceVsActual(predictedRelPar, actualRel);
       picked.sort((a, b) => a.tier - b.tier || a.name.localeCompare(b.name));
-      computed.push({ user_id, teamName, personName, madeCut, best4, isMc, picks: picked, predictedRelPar, tieDelta });
+      computed.push({ user_id, teamName, personName, best4, isMc, picks: picked, predictedRelPar, tieDelta });
     }
 
     computed.sort((a, b) => {
@@ -261,7 +273,7 @@ export function LeaderboardClient({ tournamentId }: { tournamentId: string }) {
           <p className="text-sm text-slate-600">
             {tournament ? (
               <>
-                {tournament.name} · Status: {tournament.status} · Cut complete: {String(tournament.cut_complete)}
+                {tournament.name}
                 {tournament.actual_winning_score_rel_par !== null &&
                 tournament.actual_winning_score_rel_par !== undefined ? (
                   <> · Actual winner vs par: {tournament.actual_winning_score_rel_par}</>
@@ -293,30 +305,34 @@ export function LeaderboardClient({ tournamentId }: { tournamentId: string }) {
 
       <div className="grid gap-3">
         {rows.map((r, idx) => (
-          <Card key={r.user_id} className={r.isMc ? "opacity-70" : ""}>
-            <CardHeader className="pb-3">
+          <Card key={r.user_id} className={r.isMc ? "border-red-300 bg-club-cream/60 opacity-85" : "border-club-gold/30 bg-club-cream/70"}>
+            <CardHeader className="border-b border-club-gold/20 pb-3">
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
-                  <CardTitle className="truncate text-lg">
+                  <CardTitle className="truncate text-xl text-club-navy">
                     #{idx + 1} · {r.teamName}
                   </CardTitle>
-                  <div className="truncate text-xs text-slate-600">{r.personName}</div>
+                  <div className="truncate text-xs text-slate-700">{r.personName}</div>
                 </div>
                 <div className="flex items-center gap-2">
                   {r.isMc ? <Badge variant="destructive">MC</Badge> : <Badge variant="secondary">Best 4</Badge>}
-                  <div className="rounded-md border border-slate-300 bg-slate-50 px-3 py-1 text-base font-semibold tabular-nums">
-                    {r.best4 ?? "—"}
+                  <div
+                    className={`rounded-md border border-club-gold/40 bg-white px-3 py-1 text-base font-semibold tabular-nums ${scoreClass(
+                      r.best4
+                    )}`}
+                  >
+                    {formatScore(r.best4)}
                   </div>
                 </div>
               </div>
               <CardDescription>
-                Made cut: {r.madeCut} / 7
                 {r.predictedRelPar !== null ? <> · Pred. winner vs par: {r.predictedRelPar}</> : null}
                 {r.tieDelta !== null ? <> · Tiebreak Δ: {r.tieDelta}</> : null}
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-[minmax(9rem,1fr)_3rem_3rem_3rem_3rem_4rem] gap-1 text-xs font-medium text-slate-500">
+              <div className="grid grid-cols-[3rem_minmax(9rem,1fr)_3rem_3rem_3rem_3rem_4rem] gap-1 text-xs font-medium text-slate-600">
+                <div>Cut?</div>
                 <div>Golfer</div>
                 <div className="text-right">R1</div>
                 <div className="text-right">R2</div>
@@ -328,17 +344,26 @@ export function LeaderboardClient({ tournamentId }: { tournamentId: string }) {
                 {r.picks.map((p, i) => (
                   <div
                     key={`${r.user_id}-${i}-${p.name}`}
-                    className="grid grid-cols-[minmax(9rem,1fr)_3rem_3rem_3rem_3rem_4rem] items-center gap-1 rounded border border-slate-100 px-2 py-1"
+                    className="grid grid-cols-[3rem_minmax(9rem,1fr)_3rem_3rem_3rem_3rem_4rem] items-center gap-1 rounded border border-club-gold/20 bg-white/70 px-2 py-1"
                   >
+                    <div className="text-center text-sm font-semibold">
+                      {p.is_cut === null ? (
+                        <span className="text-black">-</span>
+                      ) : p.is_cut ? (
+                        <span className="text-emerald-700">✓</span>
+                      ) : (
+                        <span className="text-red-700">✓</span>
+                      )}
+                    </div>
                     <div className="truncate text-slate-800">
                       T{p.tier} · {p.name}
                     </div>
-                    <div className="text-right tabular-nums text-slate-700">{p.r1_score ?? "-"}</div>
-                    <div className="text-right tabular-nums text-slate-700">{p.r2_score ?? "-"}</div>
-                    <div className="text-right tabular-nums text-slate-700">{p.r3_score ?? "-"}</div>
-                    <div className="text-right tabular-nums text-slate-700">{p.r4_score ?? "-"}</div>
-                    <div className="text-right tabular-nums font-semibold text-slate-900">
-                      {p.total_score ?? "—"}
+                    <div className={`text-right tabular-nums ${scoreClass(p.r1_score)}`}>{formatScore(p.r1_score)}</div>
+                    <div className={`text-right tabular-nums ${scoreClass(p.r2_score)}`}>{formatScore(p.r2_score)}</div>
+                    <div className={`text-right tabular-nums ${scoreClass(p.r3_score)}`}>{formatScore(p.r3_score)}</div>
+                    <div className={`text-right tabular-nums ${scoreClass(p.r4_score)}`}>{formatScore(p.r4_score)}</div>
+                    <div className={`text-right tabular-nums font-semibold ${scoreClass(p.total_score)}`}>
+                      {formatScore(p.total_score)}
                       {p.is_cut === false ? <span className="ml-2 text-xs text-red-700">CUT</span> : null}
                     </div>
                   </div>
