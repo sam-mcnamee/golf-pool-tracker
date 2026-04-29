@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import re
 import sys
+import unicodedata
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -27,6 +28,21 @@ def must_env(name: str) -> str:
 
 
 def normalize_name(s: str) -> str:
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(c for c in s if not unicodedata.combining(c))
+    for old, new in (
+        ("ø", "o"),
+        ("Ø", "o"),
+        ("æ", "ae"),
+        ("Æ", "ae"),
+        ("å", "a"),
+        ("Å", "a"),
+        ("ö", "o"),
+        ("Ö", "o"),
+        ("ü", "u"),
+        ("Ü", "u"),
+    ):
+        s = s.replace(old, new)
     return re.sub(r"[^a-z]+", " ", s.lower()).strip()
 
 

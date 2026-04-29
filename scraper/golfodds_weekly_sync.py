@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 import sys
+import unicodedata
 import time
 import html as html_lib
 from dataclasses import dataclass
@@ -48,6 +49,21 @@ def http_get_text(url: str, timeout_s: int = 25, retries: int = 3) -> str:
 
 
 def normalize_name(s: str) -> str:
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(c for c in s if not unicodedata.combining(c))
+    for old, new in (
+        ("ø", "o"),
+        ("Ø", "o"),
+        ("æ", "ae"),
+        ("Æ", "ae"),
+        ("å", "a"),
+        ("Å", "a"),
+        ("ö", "o"),
+        ("Ö", "o"),
+        ("ü", "u"),
+        ("Ü", "u"),
+    ):
+        s = s.replace(old, new)
     return re.sub(r"[^a-z]+", " ", s.lower()).strip()
 
 
@@ -119,11 +135,16 @@ def parse_odds_to_win_table_html(table_html: str) -> List[OddsRow]:
     for trm in re.finditer(r"(?is)<tr[^>]*>(.*?)</tr>", table_html):
         tr = trm.group(1)
         tds = re.findall(r"(?is)<td[^>]*>(.*?)</td>", tr)
-        if len(tds) < 2:
+        if len(tds) < 1:
             continue
-        name = strip_tags(tds[0])
+        name0 = strip_tags(tds[0])
+        if len(tds) < 2:
+            # Header row uses colspan="2" (single <td>); still need it to start the block.
+            if re.search(r"^odds\s+to\s+win", name0, flags=re.I):
+                raw_rows.append((name0, ""))
+            continue
         odds_txt = strip_tags(tds[1])
-        raw_rows.append((name, odds_txt))
+        raw_rows.append((name0, odds_txt))
 
     rows: List[OddsRow] = []
     started = False
@@ -155,7 +176,35 @@ def parse_odds_to_win_table_html(table_html: str) -> List[OddsRow]:
     return sorted(best.values(), key=lambda rr: rr.odds_american)
 
 
+def extract_copy_black_odds_table_after(html: str, after_idx: int) -> Optional[str]:
+    """
+    golfodds.com opens <table class="Copy-black"> after the headline, but that table is
+    not closed until much later in the file. Slice only the ODDS-to-Win rows: from the
+    Copy-black open tag up to (but not including) the Tournament Matchups row.
+    """
+    tail = html[after_idx:]
+    m = re.search(r'(?is)<table[^>]*class="[^"]*Copy-black[^"]*"[^>]*>', tail)
+    if not m:
+        return None
+    rest = tail[m.start() :]
+    mix = re.search(r"(?is)Tournament\s+Matchups", rest)
+    if not mix:
+        return None
+    cut = rest.rfind("<tr", 0, mix.start())
+    if cut < 0:
+        cut = mix.start()
+    # rest already opens with <table ...>; do not wrap again or row parsing breaks.
+    return rest[:cut] + "</table>"
+
+
 def iter_odds_tables_after_index(html: str, after_idx: int) -> List[Tuple[int, str]]:
+    """
+    Odds tables that belong to the headline at after_idx.
+
+    golfodds.com often nests the whole page (headline + odds) inside one outer <table>
+    that *starts* before the headline. Include those when after_idx falls inside the
+    fragment so we still find ODDS-to-Win for that section.
+    """
     tables = extract_all_tables(html)
     out: List[Tuple[int, str]] = []
     search_from = 0
@@ -166,10 +215,14 @@ def iter_odds_tables_after_index(html: str, after_idx: int) -> List[Tuple[int, s
         if idx < 0:
             continue
         search_from = max(search_from, idx + 1)
-        if idx < after_idx:
+        if not re.search(r"ODDS\s+to\s+Win", t, flags=re.I):
             continue
-        if re.search(r"ODDS\s+to\s+Win", t, flags=re.I):
-            out.append((idx, t))
+        table_end = idx + len(t)
+        spans_headline = idx <= after_idx < table_end
+        starts_after_headline = idx >= after_idx
+        if not (starts_after_headline or spans_headline):
+            continue
+        out.append((idx, t))
     out.sort(key=lambda x: x[0])
     return out
 
@@ -225,7 +278,11 @@ def parse_weekly_odds_page(html: str, golfer_names: List[str]) -> List[Tuple[str
             continue
 
         after_idx = hm.end()
-        tables = [t for _, t in iter_odds_tables_after_index(html, after_idx=after_idx)]
+        inner = extract_copy_black_odds_table_after(html, after_idx)
+        if inner:
+            tables = [inner]
+        else:
+            tables = [t for _, t in iter_odds_tables_after_index(html, after_idx=after_idx)]
         _, rows = pick_best_odds_table_html(tables, golfer_names=golfer_names)
         out.append((title, rows))
 
@@ -319,6 +376,9 @@ def main() -> int:
             f"(matched page title: {page_title!r})"
         )
         return 0
+
+    # Upsert does not remove stale golfer_name keys; clear before reload.
+    sb.table("tournament_odds_latest").delete().eq("tournament_id", tournament_id).execute()
 
     now = datetime.now(timezone.utc).isoformat()
     rows: List[Dict[str, Any]] = []

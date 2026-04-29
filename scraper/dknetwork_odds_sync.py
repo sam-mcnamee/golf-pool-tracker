@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 import sys
+import unicodedata
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -61,6 +62,21 @@ def http_get_text(url: str, timeout_s: int = 20, retries: int = 3) -> str:
 
 
 def normalize_name(s: str) -> str:
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(c for c in s if not unicodedata.combining(c))
+    for old, new in (
+        ("ø", "o"),
+        ("Ø", "o"),
+        ("æ", "ae"),
+        ("Æ", "ae"),
+        ("å", "a"),
+        ("Å", "a"),
+        ("ö", "o"),
+        ("Ö", "o"),
+        ("ü", "u"),
+        ("Ü", "u"),
+    ):
+        s = s.replace(old, new)
     return re.sub(r"[^a-z]+", " ", s.lower()).strip()
 
 
