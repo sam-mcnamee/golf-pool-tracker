@@ -398,43 +398,47 @@ export function LeaderboardClient({ tournamentId }: { tournamentId: string }) {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-[3rem_minmax(9rem,1fr)_3rem_3rem_3rem_3rem_4rem] gap-1 text-xs font-medium text-slate-600">
-                <div>Cut?</div>
-                <div>Golfer</div>
-                <div className="text-right">R1</div>
-                <div className="text-right">R2</div>
-                <div className="text-right">R3</div>
-                <div className="text-right">R4</div>
-                <div className="text-right">Total</div>
-              </div>
-              <div className="mt-2 grid gap-1 text-sm">
-                {r.picks.map((p, i) => (
-                  <div
-                    key={`${r.user_id}-${i}-${p.name}`}
-                    className="grid grid-cols-[3rem_minmax(9rem,1fr)_3rem_3rem_3rem_3rem_4rem] items-center gap-1 rounded border border-club-gold/20 bg-white/70 px-2 py-1"
-                  >
-                    <div className="text-center text-sm font-semibold">
-                      {p.is_cut === null ? (
-                        <span className="text-black">-</span>
-                      ) : p.is_cut ? (
-                        <span className="text-emerald-700">✓</span>
-                      ) : (
-                        <span className="text-red-700">✓</span>
-                      )}
-                    </div>
-                    <div className="truncate text-slate-800">
-                      T{p.tier} · {p.name}
-                    </div>
-                    <div className={`text-right tabular-nums ${scoreClass(p.r1_score)}`}>{formatScore(p.r1_score)}</div>
-                    <div className={`text-right tabular-nums ${scoreClass(p.r2_score)}`}>{formatScore(p.r2_score)}</div>
-                    <div className={`text-right tabular-nums ${scoreClass(p.r3_score)}`}>{formatScore(p.r3_score)}</div>
-                    <div className={`text-right tabular-nums ${scoreClass(p.r4_score)}`}>{formatScore(p.r4_score)}</div>
-                    <div className={`text-right tabular-nums font-semibold ${scoreClass(p.total_score)}`}>
-                      {formatScore(p.total_score)}
-                      {p.is_cut === false ? <span className="ml-2 text-xs text-red-700">CUT</span> : null}
-                    </div>
+              <div className="overflow-x-auto pb-1">
+                <div className="min-w-[34rem]">
+                  <div className="grid grid-cols-[3rem_minmax(9rem,1fr)_3rem_3rem_3rem_3rem_4rem] gap-1 text-xs font-medium text-slate-600">
+                    <div>Cut?</div>
+                    <div>Golfer</div>
+                    <div className="text-right">R1</div>
+                    <div className="text-right">R2</div>
+                    <div className="text-right">R3</div>
+                    <div className="text-right">R4</div>
+                    <div className="text-right">Total</div>
                   </div>
-                ))}
+                  <div className="mt-2 grid gap-1 text-sm">
+                    {r.picks.map((p, i) => (
+                      <div
+                        key={`${r.user_id}-${i}-${p.name}`}
+                        className="grid grid-cols-[3rem_minmax(9rem,1fr)_3rem_3rem_3rem_3rem_4rem] items-center gap-1 rounded border border-club-gold/20 bg-white/70 px-2 py-1"
+                      >
+                        <div className="text-center text-sm font-semibold">
+                          {p.is_cut === null ? (
+                            <span className="text-black">-</span>
+                          ) : p.is_cut ? (
+                            <span className="text-emerald-700">✓</span>
+                          ) : (
+                            <span className="text-red-700">✓</span>
+                          )}
+                        </div>
+                        <div className="truncate text-slate-800">
+                          T{p.tier} · {p.name}
+                        </div>
+                        <div className={`text-right tabular-nums ${scoreClass(p.r1_score)}`}>{formatScore(p.r1_score)}</div>
+                        <div className={`text-right tabular-nums ${scoreClass(p.r2_score)}`}>{formatScore(p.r2_score)}</div>
+                        <div className={`text-right tabular-nums ${scoreClass(p.r3_score)}`}>{formatScore(p.r3_score)}</div>
+                        <div className={`text-right tabular-nums ${scoreClass(p.r4_score)}`}>{formatScore(p.r4_score)}</div>
+                        <div className={`text-right tabular-nums font-semibold ${scoreClass(p.total_score)}`}>
+                          {formatScore(p.total_score)}
+                          {p.is_cut === false ? <span className="ml-2 text-xs text-red-700">CUT</span> : null}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
             </CardContent>
           </Card>
