@@ -476,25 +476,25 @@ export function LeaderboardClient({ tournamentId }: { tournamentId: string }) {
                             T{p.tier} · {p.name}
                           </div>
                         </div>
-                        <div className={`tabular-nums text-lg font-semibold ${totalClass}`}>{totalText}</div>
+                        <div className={`tabular-nums text-sm font-semibold ${totalClass}`}>{totalText}</div>
                       </div>
 
                       <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
-                        <div className="text-right">
-                          <div className="text-[10px] font-medium uppercase tracking-wide text-slate-500">R1</div>
-                          <div className={`tabular-nums font-semibold ${scoreClass(p.r1_score)}`}>{formatScore(p.r1_score)}</div>
+                        <div className="flex items-center justify-between rounded bg-white/50 px-2 py-1">
+                          <span className="text-[10px] font-medium uppercase tracking-wide text-slate-500">R1</span>
+                          <span className={`tabular-nums font-semibold ${scoreClass(p.r1_score)}`}>{formatScore(p.r1_score)}</span>
                         </div>
-                        <div className="text-right">
-                          <div className="text-[10px] font-medium uppercase tracking-wide text-slate-500">R2</div>
-                          <div className={`tabular-nums font-semibold ${scoreClass(p.r2_score)}`}>{formatScore(p.r2_score)}</div>
+                        <div className="flex items-center justify-between rounded bg-white/50 px-2 py-1">
+                          <span className="text-[10px] font-medium uppercase tracking-wide text-slate-500">R2</span>
+                          <span className={`tabular-nums font-semibold ${scoreClass(p.r2_score)}`}>{formatScore(p.r2_score)}</span>
                         </div>
-                        <div className="text-right">
-                          <div className="text-[10px] font-medium uppercase tracking-wide text-slate-500">R3</div>
-                          <div className={r3Class}>{r3Text}</div>
+                        <div className="flex items-center justify-between rounded bg-white/50 px-2 py-1">
+                          <span className="text-[10px] font-medium uppercase tracking-wide text-slate-500">R3</span>
+                          <span className={r3Class}>{r3Text}</span>
                         </div>
-                        <div className="text-right">
-                          <div className="text-[10px] font-medium uppercase tracking-wide text-slate-500">R4</div>
-                          <div className={r4Class}>{r4Text}</div>
+                        <div className="flex items-center justify-between rounded bg-white/50 px-2 py-1">
+                          <span className="text-[10px] font-medium uppercase tracking-wide text-slate-500">R4</span>
+                          <span className={r4Class}>{r4Text}</span>
                         </div>
                       </div>
                     </div>
