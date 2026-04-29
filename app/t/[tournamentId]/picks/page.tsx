@@ -38,12 +38,23 @@ export default async function PicksPage({ params }: { params: Promise<{ tourname
     .eq("user_id", user.id)
     .maybeSingle();
 
+  const { data: tournamentRow } = await supabase.from("tournaments").select("status,name").eq("id", tournamentId).maybeSingle();
+
+  const { data: profileRow } = await supabase
+    .from("profiles")
+    .select("team_name")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
   return (
     <PicksClient
       tournamentId={tournamentId}
       tiers={tiers ?? []}
       existingPicks={existingPicks ?? []}
       existingPredictedRelPar={tiebreakerRow?.predicted_winning_score_rel_par ?? null}
+      existingTeamName={profileRow?.team_name ?? null}
+      tournamentStatus={tournamentRow?.status ?? "Upcoming"}
+      tournamentName={tournamentRow?.name ?? "Tournament"}
     />
   );
 }

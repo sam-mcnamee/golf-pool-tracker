@@ -18,23 +18,59 @@ type RowPick = {
         tier: number;
         odds_text: string | null;
         golfers:
-          | { name: string; total_score: number | null; is_cut: boolean | null; status: string | null }
-          | { name: string; total_score: number | null; is_cut: boolean | null; status: string | null }[]
+          | {
+              name: string;
+              total_score: number | null;
+              is_cut: boolean | null;
+              status: string | null;
+              r1_score: number | null;
+              r2_score: number | null;
+              r3_score: number | null;
+              r4_score: number | null;
+            }
+          | {
+              name: string;
+              total_score: number | null;
+              is_cut: boolean | null;
+              status: string | null;
+              r1_score: number | null;
+              r2_score: number | null;
+              r3_score: number | null;
+              r4_score: number | null;
+            }[]
           | null;
       }
     | {
         tier: number;
         odds_text: string | null;
         golfers:
-          | { name: string; total_score: number | null; is_cut: boolean | null; status: string | null }
-          | { name: string; total_score: number | null; is_cut: boolean | null; status: string | null }[]
+          | {
+              name: string;
+              total_score: number | null;
+              is_cut: boolean | null;
+              status: string | null;
+              r1_score: number | null;
+              r2_score: number | null;
+              r3_score: number | null;
+              r4_score: number | null;
+            }
+          | {
+              name: string;
+              total_score: number | null;
+              is_cut: boolean | null;
+              status: string | null;
+              r1_score: number | null;
+              r2_score: number | null;
+              r3_score: number | null;
+              r4_score: number | null;
+            }[]
           | null;
       }[]
     | null;
   user_id: string;
 };
 
-type Profile = { user_id: string; display_name: string | null };
+type Profile = { user_id: string; display_name: string | null; team_name: string | null };
 
 type Tournament = {
   status: string;
@@ -45,11 +81,12 @@ type Tournament = {
 
 type LeaderRow = {
   user_id: string;
-  display: string;
+  teamName: string;
+  personName: string;
   best4: number | null;
   madeCut: number;
   isMc: boolean;
-  picks: PickedGolfer[];
+  picks: (PickedGolfer & { tier: number; r1_score: number | null; r2_score: number | null; r3_score: number | null; r4_score: number | null })[];
   predictedRelPar: number | null;
   tieDelta: number | null;
 };
@@ -89,7 +126,7 @@ export function LeaderboardClient({ tournamentId }: { tournamentId: string }) {
     const { data: picks, error: picksErr } = await supabase
       .from("picks")
       .select(
-        "user_id,golfer_tiers:golfer_tier_id(tier,odds_text,golfers:golfer_id(name,total_score,is_cut,status))"
+        "user_id,golfer_tiers:golfer_tier_id(tier,odds_text,golfers:golfer_id(name,total_score,is_cut,status,r1_score,r2_score,r3_score,r4_score))"
       )
       .eq("tournament_id", tournamentId);
 
@@ -100,7 +137,7 @@ export function LeaderboardClient({ tournamentId }: { tournamentId: string }) {
     }
 
     const userIds = Array.from(new Set((picks ?? []).map((p) => p.user_id)));
-    const { data: profiles } = await supabase.from("profiles").select("user_id,display_name").in("user_id", userIds);
+    const { data: profiles } = await supabase.from("profiles").select("user_id,display_name,team_name").in("user_id", userIds);
     const profileById = new Map<string, Profile>();
     for (const p of profiles ?? []) profileById.set(p.user_id, p);
 
@@ -125,25 +162,50 @@ export function LeaderboardClient({ tournamentId }: { tournamentId: string }) {
 
     const computed: LeaderRow[] = [];
     for (const [user_id, ps] of byUser.entries()) {
-      const display = profileById.get(user_id)?.display_name ?? user_id.slice(0, 8);
+      const profile = profileById.get(user_id);
+      const personName = profile?.display_name?.trim() || "Unknown player";
+      const teamName = profile?.team_name?.trim() || `Team ${user_id.slice(0, 8)}`;
       const picked = ps
         .map((p) => {
           const gt = p.golfer_tiers ? (Array.isArray(p.golfer_tiers) ? p.golfer_tiers[0] : p.golfer_tiers) : null;
           const g0 = gt?.golfers ?? null;
           const g = Array.isArray(g0) ? g0[0] ?? null : g0;
-          return g;
+          return g ? { ...g, tier: gt?.tier ?? 0 } : null;
         })
         .filter(
-          (g): g is { name: string; total_score: number | null; is_cut: boolean | null; status: string | null } => Boolean(g)
+          (
+            g
+          ): g is {
+            name: string;
+            total_score: number | null;
+            is_cut: boolean | null;
+            status: string | null;
+            r1_score: number | null;
+            r2_score: number | null;
+            r3_score: number | null;
+            r4_score: number | null;
+            tier: number;
+          } => Boolean(g)
         )
-        .map((g) => ({ name: g.name, total_score: g.total_score, is_cut: g.is_cut, status: g.status }));
+        .map((g) => ({
+          name: g.name,
+          total_score: g.total_score,
+          is_cut: g.is_cut,
+          status: g.status,
+          r1_score: g.r1_score,
+          r2_score: g.r2_score,
+          r3_score: g.r3_score,
+          r4_score: g.r4_score,
+          tier: g.tier
+        }));
 
       const madeCut = computeMadeCutCount(picked);
       const best4 = computeBest4(picked).sum;
       const isMc = Boolean(t.cut_complete && madeCut < 4);
       const predictedRelPar = predictedByUser.get(user_id) ?? null;
       const tieDelta = tiebreakDistanceVsActual(predictedRelPar, actualRel);
-      computed.push({ user_id, display, madeCut, best4, isMc, picks: picked, predictedRelPar, tieDelta });
+      picked.sort((a, b) => a.tier - b.tier || a.name.localeCompare(b.name));
+      computed.push({ user_id, teamName, personName, madeCut, best4, isMc, picks: picked, predictedRelPar, tieDelta });
     }
 
     computed.sort((a, b) => {
@@ -158,7 +220,7 @@ export function LeaderboardClient({ tournamentId }: { tournamentId: string }) {
         if (ad !== null && bd === null) return -1;
         if (ad === null && bd !== null) return 1;
       }
-      return a.display.localeCompare(b.display);
+      return a.teamName.localeCompare(b.teamName);
     });
 
     setRows(computed);
@@ -234,12 +296,17 @@ export function LeaderboardClient({ tournamentId }: { tournamentId: string }) {
           <Card key={r.user_id} className={r.isMc ? "opacity-70" : ""}>
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between gap-3">
-                <CardTitle className="text-base">
-                  #{idx + 1} · {r.display}
-                </CardTitle>
+                <div className="min-w-0">
+                  <CardTitle className="truncate text-lg">
+                    #{idx + 1} · {r.teamName}
+                  </CardTitle>
+                  <div className="truncate text-xs text-slate-600">{r.personName}</div>
+                </div>
                 <div className="flex items-center gap-2">
                   {r.isMc ? <Badge variant="destructive">MC</Badge> : <Badge variant="secondary">Best 4</Badge>}
-                  <div className="text-sm font-semibold tabular-nums">{r.best4 ?? "—"}</div>
+                  <div className="rounded-md border border-slate-300 bg-slate-50 px-3 py-1 text-base font-semibold tabular-nums">
+                    {r.best4 ?? "—"}
+                  </div>
                 </div>
               </div>
               <CardDescription>
@@ -249,11 +316,28 @@ export function LeaderboardClient({ tournamentId }: { tournamentId: string }) {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="grid gap-1 text-sm">
+              <div className="grid grid-cols-[minmax(9rem,1fr)_3rem_3rem_3rem_3rem_4rem] gap-1 text-xs font-medium text-slate-500">
+                <div>Golfer</div>
+                <div className="text-right">R1</div>
+                <div className="text-right">R2</div>
+                <div className="text-right">R3</div>
+                <div className="text-right">R4</div>
+                <div className="text-right">Total</div>
+              </div>
+              <div className="mt-2 grid gap-1 text-sm">
                 {r.picks.map((p, i) => (
-                  <div key={`${r.user_id}-${i}-${p.name}`} className="flex items-center justify-between gap-3">
-                    <div className="truncate">{p.name}</div>
-                    <div className="shrink-0 tabular-nums text-slate-700">
+                  <div
+                    key={`${r.user_id}-${i}-${p.name}`}
+                    className="grid grid-cols-[minmax(9rem,1fr)_3rem_3rem_3rem_3rem_4rem] items-center gap-1 rounded border border-slate-100 px-2 py-1"
+                  >
+                    <div className="truncate text-slate-800">
+                      T{p.tier} · {p.name}
+                    </div>
+                    <div className="text-right tabular-nums text-slate-700">{p.r1_score ?? "-"}</div>
+                    <div className="text-right tabular-nums text-slate-700">{p.r2_score ?? "-"}</div>
+                    <div className="text-right tabular-nums text-slate-700">{p.r3_score ?? "-"}</div>
+                    <div className="text-right tabular-nums text-slate-700">{p.r4_score ?? "-"}</div>
+                    <div className="text-right tabular-nums font-semibold text-slate-900">
                       {p.total_score ?? "—"}
                       {p.is_cut === false ? <span className="ml-2 text-xs text-red-700">CUT</span> : null}
                     </div>

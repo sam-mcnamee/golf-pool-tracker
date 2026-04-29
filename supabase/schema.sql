@@ -40,12 +40,21 @@ create table if not exists public.golfers (
   espn_athlete_id text not null,
   name text not null,
   country text null,
+  r1_score integer null,
+  r2_score integer null,
+  r3_score integer null,
+  r4_score integer null,
   total_score integer null,
   thru text null,
   status text null,
   is_cut boolean null,
   updated_at timestamptz not null default now()
 );
+
+alter table public.golfers add column if not exists r1_score integer null;
+alter table public.golfers add column if not exists r2_score integer null;
+alter table public.golfers add column if not exists r3_score integer null;
+alter table public.golfers add column if not exists r4_score integer null;
 
 create unique index if not exists golfers_tournament_athlete_uidx
   on public.golfers (tournament_id, espn_athlete_id);
@@ -152,11 +161,13 @@ create index if not exists tiebreakers_tournament_id_idx
 create table if not exists public.profiles (
   user_id uuid primary key references auth.users(id) on delete cascade,
   display_name text null,
+  team_name text null,
   is_admin boolean not null default false,
   created_at timestamptz not null default now()
 );
 
 alter table public.profiles add column if not exists is_admin boolean not null default false;
+alter table public.profiles add column if not exists team_name text null;
 
 -- Updated_at trigger helper
 create or replace function public.set_updated_at()

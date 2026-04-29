@@ -210,6 +210,10 @@ def parse_total_score(score_str: Optional[str]) -> Tuple[Optional[int], Optional
 class GolferUpdate:
     espn_athlete_id: str
     name: str
+    r1_score: Optional[int]
+    r2_score: Optional[int]
+    r3_score: Optional[int]
+    r4_score: Optional[int]
     total_score: Optional[int]
     thru: Optional[str]
     status: Optional[str]
@@ -258,8 +262,33 @@ def competitor_to_update(row: Dict[str, Any]) -> Optional[GolferUpdate]:
     if score_is_cut is not None:
         is_cut = score_is_cut
 
-    # Weekend rounds implies made cut.
     linescores = row.get("linescores")
+    round_scores: Dict[int, int] = {}
+    if isinstance(linescores, list):
+        for ls in linescores:
+            if not isinstance(ls, dict):
+                continue
+            period_raw = ls.get("period")
+            if not isinstance(period_raw, int):
+                continue
+            if period_raw < 1 or period_raw > 4:
+                continue
+
+            value = ls.get("value")
+            score_int: Optional[int] = None
+            if isinstance(value, (int, float)):
+                score_int = int(value)
+            else:
+                display = ls.get("displayValue")
+                if not isinstance(display, str):
+                    display = ls.get("score") if isinstance(ls.get("score"), str) else None
+                parsed, _st, _cut = parse_total_score(display)
+                score_int = parsed
+
+            if score_int is not None:
+                round_scores[period_raw] = score_int
+
+    # Weekend rounds implies made cut.
     if is_cut is None and isinstance(linescores, list) and len(linescores) >= 3:
         is_cut = True
 
@@ -274,6 +303,10 @@ def competitor_to_update(row: Dict[str, Any]) -> Optional[GolferUpdate]:
     return GolferUpdate(
         espn_athlete_id=str(athlete_id),
         name=str(name),
+        r1_score=round_scores.get(1),
+        r2_score=round_scores.get(2),
+        r3_score=round_scores.get(3),
+        r4_score=round_scores.get(4),
         total_score=total_score,
         thru=thru,
         status=status_text,
@@ -370,6 +403,10 @@ def main() -> int:
             "tournament_id": tournament_id,
             "espn_athlete_id": u.espn_athlete_id,
             "name": u.name,
+            "r1_score": u.r1_score,
+            "r2_score": u.r2_score,
+            "r3_score": u.r3_score,
+            "r4_score": u.r4_score,
             "total_score": u.total_score,
             "thru": u.thru,
             "status": u.status,

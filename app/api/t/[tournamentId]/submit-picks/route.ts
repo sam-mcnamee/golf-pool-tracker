@@ -4,7 +4,8 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const bodySchema = z.object({
   golferTierIds: z.array(z.string().uuid()).length(7),
-  predictedWinningScoreRelPar: z.number().int()
+  predictedWinningScoreRelPar: z.number().int(),
+  teamName: z.string().trim().min(2).max(60)
 });
 
 export async function POST(request: Request, { params }: { params: Promise<{ tournamentId: string }> }) {
@@ -23,6 +24,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ tou
   const parsed = bodySchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.message }, { status: 400 });
+  }
+
+  const teamName = parsed.data.teamName.trim();
+
+  const { error: profileErr } = await supabase
+    .from("profiles")
+    .upsert({ user_id: user.id, team_name: teamName }, { onConflict: "user_id" });
+
+  if (profileErr) {
+    return NextResponse.json({ error: profileErr.message }, { status: 400 });
   }
 
   const { error } = await supabase.rpc("submit_picks", {
