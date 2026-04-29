@@ -344,7 +344,7 @@ export function LeaderboardClient({ tournamentId }: { tournamentId: string }) {
           <CardTitle className="text-center text-2xl italic tracking-wide text-white">Chodesters</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
-          <div className="grid grid-cols-[2.5rem_minmax(8rem,1fr)_5rem_5rem] border-b border-club-gold/30 bg-club-cream/85 px-3 py-2 text-xs font-semibold uppercase text-slate-700">
+          <div className="grid grid-cols-[2.25rem_minmax(0,1fr)_4rem_4rem] border-b border-club-gold/30 bg-club-cream/85 px-3 py-2 text-xs font-semibold uppercase text-slate-700">
             <div>#</div>
             <div>Team</div>
             <div className="text-right">Overall</div>
@@ -354,10 +354,10 @@ export function LeaderboardClient({ tournamentId }: { tournamentId: string }) {
             {rows.map((r, idx) => (
               <div
                 key={`glance-${r.user_id}`}
-                className="grid grid-cols-[2.5rem_minmax(8rem,1fr)_5rem_5rem] items-center border-b border-club-gold/20 px-3 py-2 text-sm"
+                className="grid grid-cols-[2.25rem_minmax(0,1fr)_4rem_4rem] items-center border-b border-club-gold/20 px-3 py-2 text-sm"
               >
                 <div className="font-semibold text-slate-700">{idx + 1}</div>
-                <div className="truncate font-medium text-slate-900">{r.teamName}</div>
+                <div className="min-w-0 truncate font-medium text-slate-900">{r.teamName}</div>
                 <div className={`text-right tabular-nums font-semibold ${scoreClass(r.best4)}`}>{formatScore(r.best4)}</div>
                 <div className={`text-right tabular-nums font-semibold ${scoreClass(r.scoreToday)}`}>{formatScore(r.scoreToday)}</div>
               </div>
@@ -440,42 +440,66 @@ export function LeaderboardClient({ tournamentId }: { tournamentId: string }) {
               </div>
 
               <div className="md:hidden space-y-2">
-                {r.picks.map((p, i) => (
-                  <div
-                    key={`${r.user_id}-${i}-${p.name}`}
-                    className="rounded border border-club-gold/20 bg-white/70 px-3 py-2"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="w-7 shrink-0 text-center text-sm font-semibold">
-                        {p.is_cut === null ? (
-                          <span className="text-black">-</span>
-                        ) : p.is_cut ? (
-                          <span className="text-emerald-700">✓</span>
-                        ) : (
-                          <span className="text-red-700">✓</span>
-                        )}
+                {r.picks.map((p, i) => {
+                  const highlightClass =
+                    p.is_cut === true
+                      ? "border-emerald-300/70 bg-emerald-50/60"
+                      : p.is_cut === false
+                        ? "border-red-300/70 bg-red-50/60"
+                        : "border-club-gold/20 bg-white/70";
+
+                  const totalText =
+                    p.is_cut === false && p.total_score === null ? "MC" : formatScore(p.total_score);
+                  const totalClass =
+                    p.is_cut === false && p.total_score === null
+                      ? "text-red-700"
+                      : p.total_score === null
+                        ? "text-slate-700"
+                        : scoreClass(p.total_score);
+
+                  const r3Text =
+                    p.is_cut === false && p.r3_score === null ? "MC" : formatScore(p.r3_score);
+                  const r4Text =
+                    p.is_cut === false && p.r4_score === null ? "MC" : formatScore(p.r4_score);
+
+                  const r3Class = p.is_cut === false && p.r3_score === null ? "text-red-700 font-semibold tabular-nums" : `tabular-nums ${scoreClass(p.r3_score)} font-semibold`;
+                  const r4Class = p.is_cut === false && p.r4_score === null ? "text-red-700 font-semibold tabular-nums" : `tabular-nums ${scoreClass(p.r4_score)} font-semibold`;
+
+                  return (
+                    <div
+                      key={`${r.user_id}-${i}-${p.name}`}
+                      className={`rounded border ${highlightClass} px-3 py-2`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-semibold text-slate-800">
+                            T{p.tier} · {p.name}
+                          </div>
+                        </div>
+                        <div className={`tabular-nums text-lg font-semibold ${totalClass}`}>{totalText}</div>
                       </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-semibold text-slate-800">
-                          T{p.tier} · {p.name}
+
+                      <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+                        <div className="text-right">
+                          <div className="text-[10px] font-medium uppercase tracking-wide text-slate-500">R1</div>
+                          <div className={`tabular-nums font-semibold ${scoreClass(p.r1_score)}`}>{formatScore(p.r1_score)}</div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-[10px] font-medium uppercase tracking-wide text-slate-500">R2</div>
+                          <div className={`tabular-nums font-semibold ${scoreClass(p.r2_score)}`}>{formatScore(p.r2_score)}</div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-[10px] font-medium uppercase tracking-wide text-slate-500">R3</div>
+                          <div className={r3Class}>{r3Text}</div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-[10px] font-medium uppercase tracking-wide text-slate-500">R4</div>
+                          <div className={r4Class}>{r4Text}</div>
                         </div>
                       </div>
                     </div>
-
-                    <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
-                      <div className={`text-right tabular-nums ${scoreClass(p.r1_score)}`}>R1 {formatScore(p.r1_score)}</div>
-                      <div className={`text-right tabular-nums ${scoreClass(p.r2_score)}`}>R2 {formatScore(p.r2_score)}</div>
-                      <div className={`text-right tabular-nums ${scoreClass(p.r3_score)}`}>R3 {formatScore(p.r3_score)}</div>
-                      <div className={`text-right tabular-nums ${scoreClass(p.r4_score)}`}>R4 {formatScore(p.r4_score)}</div>
-                    </div>
-
-                    <div className="mt-2 flex items-center justify-end">
-                      <div className={`tabular-nums text-base font-semibold ${scoreClass(p.total_score)}`}>
-                        Total {formatScore(p.total_score)}
-                      </div>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </CardContent>
           </Card>
