@@ -339,29 +339,33 @@ export function LeaderboardClient({ tournamentId }: { tournamentId: string }) {
       {error ? <div className="text-sm text-red-600">{error}</div> : null}
       {loading ? <div className="text-sm text-slate-600">Loading...</div> : null}
 
-      <Card className="overflow-hidden border-club-gold/40 bg-club-cream/70">
+      <Card className="border-club-gold/40 bg-club-cream/70">
         <CardHeader className="rounded-t-md bg-club-navy py-3">
           <CardTitle className="text-center text-2xl italic tracking-wide text-white">Chodesters</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
-          <div className="grid grid-cols-[2.5rem_minmax(8rem,1fr)_5rem_5rem] border-b border-club-gold/30 bg-club-cream/85 px-3 py-2 text-xs font-semibold uppercase text-slate-700">
-            <div>#</div>
-            <div>Team</div>
-            <div className="text-right">Overall</div>
-            <div className="text-right">Today</div>
-          </div>
-          <div>
-            {rows.map((r, idx) => (
-              <div
-                key={`glance-${r.user_id}`}
-                className="grid grid-cols-[2.5rem_minmax(8rem,1fr)_5rem_5rem] items-center border-b border-club-gold/20 px-3 py-2 text-sm"
-              >
-                <div className="font-semibold text-slate-700">{idx + 1}</div>
-                <div className="truncate font-medium text-slate-900">{r.teamName}</div>
-                <div className={`text-right tabular-nums font-semibold ${scoreClass(r.best4)}`}>{formatScore(r.best4)}</div>
-                <div className={`text-right tabular-nums font-semibold ${scoreClass(r.scoreToday)}`}>{formatScore(r.scoreToday)}</div>
+          <div className="overflow-x-auto">
+            <div className="min-w-[22rem]">
+              <div className="grid grid-cols-[2.25rem_minmax(7rem,1fr)_5rem_5rem] border-b border-club-gold/30 bg-club-cream/85 px-3 py-2 text-xs font-semibold uppercase text-slate-700">
+                <div>#</div>
+                <div>Team</div>
+                <div className="text-right">Overall</div>
+                <div className="text-right">Today</div>
               </div>
-            ))}
+              <div>
+                {rows.map((r, idx) => (
+                  <div
+                    key={`glance-${r.user_id}`}
+                    className="grid grid-cols-[2.25rem_minmax(7rem,1fr)_5rem_5rem] items-center border-b border-club-gold/20 px-3 py-2 text-sm"
+                  >
+                    <div className="font-semibold text-slate-700">{idx + 1}</div>
+                    <div className="truncate whitespace-nowrap font-medium text-slate-900">{r.teamName}</div>
+                    <div className={`text-right tabular-nums font-semibold ${scoreClass(r.best4)}`}>{formatScore(r.best4)}</div>
+                    <div className={`text-right tabular-nums font-semibold ${scoreClass(r.scoreToday)}`}>{formatScore(r.scoreToday)}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -399,8 +403,8 @@ export function LeaderboardClient({ tournamentId }: { tournamentId: string }) {
             </CardHeader>
             <CardContent>
               <div className="overflow-x-auto pb-1">
-                <div className="min-w-[34rem]">
-                  <div className="grid grid-cols-[3rem_minmax(9rem,1fr)_3rem_3rem_3rem_3rem_4rem] gap-1 text-xs font-medium text-slate-600">
+                <div className="min-w-[31rem]">
+                  <div className="grid grid-cols-[2.5rem_minmax(8rem,1fr)_3rem_3rem_3rem_3rem_3.5rem] gap-1 text-xs font-medium text-slate-600">
                     <div>Cut?</div>
                     <div>Golfer</div>
                     <div className="text-right">R1</div>
@@ -413,7 +417,7 @@ export function LeaderboardClient({ tournamentId }: { tournamentId: string }) {
                     {r.picks.map((p, i) => (
                       <div
                         key={`${r.user_id}-${i}-${p.name}`}
-                        className="grid grid-cols-[3rem_minmax(9rem,1fr)_3rem_3rem_3rem_3rem_4rem] items-center gap-1 rounded border border-club-gold/20 bg-white/70 px-2 py-1"
+                        className="grid grid-cols-[2.5rem_minmax(8rem,1fr)_3rem_3rem_3rem_3rem_3.5rem] items-center gap-1 rounded border border-club-gold/20 bg-white/70 px-2 py-1"
                       >
                         <div className="text-center text-sm font-semibold">
                           {p.is_cut === null ? (
