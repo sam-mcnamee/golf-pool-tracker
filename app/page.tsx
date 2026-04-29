@@ -49,7 +49,7 @@ export default async function HomePage() {
                   <div className="text-sm text-slate-600">
                     Status: <span className="font-medium text-club-navy">{t.status}</span>
                   </div>
-                  <p className="text-sm text-slate-600">Get your picks in before 1 AM PST.</p>
+                  <p className="text-sm text-slate-600">Get your picks in before Thursday at 1 AM PST.</p>
                 </div>
                 <div className="flex w-full flex-col gap-2 sm:w-auto sm:min-w-[220px]">
                   <Button asChild className="w-full bg-club-navy text-white hover:bg-club-navy/90">
