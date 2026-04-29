@@ -393,7 +393,7 @@ export function LeaderboardClient({ tournamentId }: { tournamentId: string }) {
                 </div>
               </div>
               <CardDescription>
-                {r.predictedRelPar !== null ? <> · Pred. winner vs par: {r.predictedRelPar}</> : null}
+                {r.predictedRelPar !== null ? <>Winning Score Prediction: {r.predictedRelPar}</> : null}
                 {r.tieDelta !== null ? <> · Tiebreak Δ: {r.tieDelta}</> : null}
               </CardDescription>
             </CardHeader>
