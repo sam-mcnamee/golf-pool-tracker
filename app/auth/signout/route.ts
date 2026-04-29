@@ -1,10 +1,10 @@
-import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { NextResponse, type NextRequest } from "next/server";
+import { createSupabaseRouteHandlerClient } from "@/lib/supabase/route-handler";
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   const { origin } = new URL(request.url);
-  const supabase = await createSupabaseServerClient();
+  const response = NextResponse.redirect(`${origin}/`, { status: 303 });
+  const supabase = createSupabaseRouteHandlerClient(request, response);
   await supabase.auth.signOut();
-  return NextResponse.redirect(`${origin}/`, { status: 303 });
+  return response;
 }
-

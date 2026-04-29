@@ -20,10 +20,12 @@ export function LoginForm({ initialOAuthError }: { initialOAuthError?: string })
     setEmailSent(false);
 
     const supabase = createSupabaseBrowserClient();
+    const callback = new URL("/auth/callback", window.location.origin);
+    callback.searchParams.set("next", "/");
     const { data, error: oauthErr } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: callback.toString(),
         queryParams: { prompt: "select_account" }
       }
     });
@@ -50,10 +52,12 @@ export function LoginForm({ initialOAuthError }: { initialOAuthError?: string })
     setEmailSent(false);
 
     const supabase = createSupabaseBrowserClient();
+    const magic = new URL("/auth/callback", window.location.origin);
+    magic.searchParams.set("next", "/");
     const { error: otpErr } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback`
+        emailRedirectTo: magic.toString()
       }
     });
 
