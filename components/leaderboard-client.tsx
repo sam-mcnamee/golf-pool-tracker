@@ -2,28 +2,46 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
-import { computeBest4, computeMadeCutCount, type PickedGolfer } from "@/lib/domain/scoring";
+import {
+  computeBest4,
+  computeMadeCutCount,
+  tiebreakDistanceVsActual,
+  type PickedGolfer
+} from "@/lib/domain/scoring";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
 type RowPick = {
-  golfer_tiers: {
-    tier: number;
-    odds_text: string | null;
-    golfers: {
-      name: string;
-      total_score: number | null;
-      is_cut: boolean | null;
-      status: string | null;
-    } | null;
-  } | null;
+  golfer_tiers:
+    | {
+        tier: number;
+        odds_text: string | null;
+        golfers:
+          | { name: string; total_score: number | null; is_cut: boolean | null; status: string | null }
+          | { name: string; total_score: number | null; is_cut: boolean | null; status: string | null }[]
+          | null;
+      }
+    | {
+        tier: number;
+        odds_text: string | null;
+        golfers:
+          | { name: string; total_score: number | null; is_cut: boolean | null; status: string | null }
+          | { name: string; total_score: number | null; is_cut: boolean | null; status: string | null }[]
+          | null;
+      }[]
+    | null;
   user_id: string;
 };
 
 type Profile = { user_id: string; display_name: string | null };
 
-type Tournament = { status: string; cut_complete: boolean; name: string };
+type Tournament = {
+  status: string;
+  cut_complete: boolean;
+  name: string;
+  actual_winning_score_rel_par: number | null;
+};
 
 type LeaderRow = {
   user_id: string;
@@ -32,6 +50,8 @@ type LeaderRow = {
   madeCut: number;
   isMc: boolean;
   picks: PickedGolfer[];
+  predictedRelPar: number | null;
+  tieDelta: number | null;
 };
 
 export function LeaderboardClient({ tournamentId }: { tournamentId: string }) {
@@ -54,7 +74,7 @@ export function LeaderboardClient({ tournamentId }: { tournamentId: string }) {
 
     const { data: t, error: tErr } = await supabase
       .from("tournaments")
-      .select("name,status,cut_complete")
+      .select("name,status,cut_complete,actual_winning_score_rel_par")
       .eq("id", tournamentId)
       .maybeSingle();
 
@@ -84,8 +104,20 @@ export function LeaderboardClient({ tournamentId }: { tournamentId: string }) {
     const profileById = new Map<string, Profile>();
     for (const p of profiles ?? []) profileById.set(p.user_id, p);
 
+    const predictedByUser = new Map<string, number>();
+    if (userIds.length > 0) {
+      const { data: tieRows } = await supabase
+        .from("tiebreakers")
+        .select("user_id,predicted_winning_score_rel_par")
+        .eq("tournament_id", tournamentId)
+        .in("user_id", userIds);
+      for (const row of tieRows ?? []) predictedByUser.set(row.user_id, row.predicted_winning_score_rel_par);
+    }
+
+    const actualRel = t.actual_winning_score_rel_par ?? null;
+
     const byUser = new Map<string, RowPick[]>();
-    for (const p of (picks ?? []) as RowPick[]) {
+    for (const p of (picks ?? []) as unknown as RowPick[]) {
       const arr = byUser.get(p.user_id) ?? [];
       arr.push(p);
       byUser.set(p.user_id, arr);
@@ -95,14 +127,23 @@ export function LeaderboardClient({ tournamentId }: { tournamentId: string }) {
     for (const [user_id, ps] of byUser.entries()) {
       const display = profileById.get(user_id)?.display_name ?? user_id.slice(0, 8);
       const picked = ps
-        .map((p) => p.golfer_tiers?.golfers)
-        .filter((g): g is NonNullable<RowPick["golfer_tiers"]>["golfers"] => Boolean(g))
-        .map((g) => ({ name: g!.name, total_score: g!.total_score, is_cut: g!.is_cut, status: g!.status }));
+        .map((p) => {
+          const gt = p.golfer_tiers ? (Array.isArray(p.golfer_tiers) ? p.golfer_tiers[0] : p.golfer_tiers) : null;
+          const g0 = gt?.golfers ?? null;
+          const g = Array.isArray(g0) ? g0[0] ?? null : g0;
+          return g;
+        })
+        .filter(
+          (g): g is { name: string; total_score: number | null; is_cut: boolean | null; status: string | null } => Boolean(g)
+        )
+        .map((g) => ({ name: g.name, total_score: g.total_score, is_cut: g.is_cut, status: g.status }));
 
       const madeCut = computeMadeCutCount(picked);
       const best4 = computeBest4(picked).sum;
       const isMc = Boolean(t.cut_complete && madeCut < 4);
-      computed.push({ user_id, display, madeCut, best4, isMc, picks: picked });
+      const predictedRelPar = predictedByUser.get(user_id) ?? null;
+      const tieDelta = tiebreakDistanceVsActual(predictedRelPar, actualRel);
+      computed.push({ user_id, display, madeCut, best4, isMc, picks: picked, predictedRelPar, tieDelta });
     }
 
     computed.sort((a, b) => {
@@ -110,6 +151,13 @@ export function LeaderboardClient({ tournamentId }: { tournamentId: string }) {
       const as = a.best4 ?? Number.POSITIVE_INFINITY;
       const bs = b.best4 ?? Number.POSITIVE_INFINITY;
       if (as !== bs) return as - bs;
+      if (actualRel !== null) {
+        const ad = a.tieDelta;
+        const bd = b.tieDelta;
+        if (ad !== null && bd !== null && ad !== bd) return ad - bd;
+        if (ad !== null && bd === null) return -1;
+        if (ad === null && bd !== null) return 1;
+      }
       return a.display.localeCompare(b.display);
     });
 
@@ -152,6 +200,10 @@ export function LeaderboardClient({ tournamentId }: { tournamentId: string }) {
             {tournament ? (
               <>
                 {tournament.name} · Status: {tournament.status} · Cut complete: {String(tournament.cut_complete)}
+                {tournament.actual_winning_score_rel_par !== null &&
+                tournament.actual_winning_score_rel_par !== undefined ? (
+                  <> · Actual winner vs par: {tournament.actual_winning_score_rel_par}</>
+                ) : null}
               </>
             ) : (
               <>Tournament: {tournamentId}</>
@@ -190,12 +242,16 @@ export function LeaderboardClient({ tournamentId }: { tournamentId: string }) {
                   <div className="text-sm font-semibold tabular-nums">{r.best4 ?? "—"}</div>
                 </div>
               </div>
-              <CardDescription>Made cut: {r.madeCut} / 7</CardDescription>
+              <CardDescription>
+                Made cut: {r.madeCut} / 7
+                {r.predictedRelPar !== null ? <> · Pred. winner vs par: {r.predictedRelPar}</> : null}
+                {r.tieDelta !== null ? <> · Tiebreak Δ: {r.tieDelta}</> : null}
+              </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="grid gap-1 text-sm">
-                {r.picks.map((p) => (
-                  <div key={p.name} className="flex items-center justify-between gap-3">
+                {r.picks.map((p, i) => (
+                  <div key={`${r.user_id}-${i}-${p.name}`} className="flex items-center justify-between gap-3">
                     <div className="truncate">{p.name}</div>
                     <div className="shrink-0 tabular-nums text-slate-700">
                       {p.total_score ?? "—"}

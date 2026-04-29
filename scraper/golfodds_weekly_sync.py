@@ -14,6 +14,8 @@ from typing import Any, Dict, List, Optional, Tuple
 import requests
 from supabase import Client, create_client
 
+from tournament_context import pick_current_tournament
+
 
 WEEKLY_ODDS_URL = "http://golfodds.com/weekly-odds.html"
 
@@ -76,36 +78,39 @@ def strip_tags(fragment: str) -> str:
 
 def extract_all_tables(html: str) -> List[str]:
     """
-    Extract raw <table>...</table> fragments using a small nested-tag stack.
+    Extract raw <table>...</table> fragments using a single-pass nested-tag stack.
     """
     lower = html.lower()
     tables: List[str] = []
+
+    stack: List[int] = []
     i = 0
-    while True:
-        start = lower.find("<table", i)
-        if start < 0:
+    while i < len(html):
+        open_idx = lower.find("<table", i)
+        close_idx = lower.find("</table>", i)
+
+        if open_idx < 0 and close_idx < 0:
             break
-        depth = 0
-        j = start
-        while j < len(html):
-            next_open = lower.find("<table", j)
-            next_close = lower.find("</table>", j)
-            if next_close < 0:
-                break
-            if next_open >= 0 and next_open < next_close:
-                depth += 1
-                j = next_open + len("<table")
+
+        if open_idx >= 0 and (close_idx < 0 or open_idx < close_idx):
+            stack.append(open_idx)
+            i = open_idx + len("<table")
+            continue
+
+        # close
+        if close_idx >= 0:
+            if not stack:
+                i = close_idx + len("</table>")
                 continue
-            # close
-            if depth == 0:
-                end = next_close + len("</table>")
+            start = stack.pop()
+            end = close_idx + len("</table>")
+            if not stack:
                 tables.append(html[start:end])
-                i = end
-                break
-            depth -= 1
-            j = next_close + len("</table>")
-        else:
-            break
+            i = end
+            continue
+
+        break
+
     return tables
 
 
@@ -225,22 +230,6 @@ def parse_weekly_odds_page(html: str, golfer_names: List[str]) -> List[Tuple[str
         out.append((title, rows))
 
     return out
-
-
-def pick_current_tournament(sb: Client) -> Dict[str, Any]:
-    # Keep consistent with /admin (latest created tournament) + dknetwork_odds_sync.py
-    q = (
-        sb.table("tournaments")
-        .select("id,name,status")
-        .neq("status", "Complete")
-        .order("created_at", desc=True)
-        .limit(1)
-        .execute()
-    )
-    rows = q.data or []
-    if not rows:
-        raise RuntimeError("No active tournament found in Supabase")
-    return rows[0]
 
 
 def score_title_match(tournament_name: str, page_title: str) -> float:

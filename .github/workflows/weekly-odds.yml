@@ -1,0 +1,32 @@
+# Monday golf odds (three attempts): ESPN field + golfodds + DK Network + merge.
+# GitHub cron is UTC only. These map to 1:00, 4:00, and 12:00 Pacific during PDT (UTC−7, ~Mar–Nov).
+# During PST (UTC−8), same UTC runs at 12:00a, 3:00a, 11:00a Pacific—shift each hour +1 in UTC if you want identical local winter times.
+name: Weekly golf odds pipeline
+
+on:
+  schedule:
+    - cron: "0 8 * * 1" # ~1:00 Pacific (PDT)
+    - cron: "0 11 * * 1" # ~4:00 Pacific (PDT)
+    - cron: "0 19 * * 1" # ~12:00 Pacific noon (PDT)
+  workflow_dispatch:
+
+jobs:
+  odds:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: scraper/requirements.txt
+
+      - name: Install scraper dependencies
+        run: pip install -r scraper/requirements.txt
+
+      - name: Run odds pipeline
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python scraper/run_odds_pipeline.py

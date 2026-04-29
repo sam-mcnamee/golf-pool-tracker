@@ -14,6 +14,8 @@ import requests
 from bs4 import BeautifulSoup
 from supabase import Client, create_client
 
+from tournament_context import pick_current_tournament
+
 
 WP_API = "https://dknetwork.draftkings.com/wp-json/wp/v2/posts"
 
@@ -146,21 +148,6 @@ def find_full_field_post(tournament_name: str) -> Tuple[str, str]:
     link = str(chosen.get("link"))
     ttl = title(chosen) or link
     return (link, ttl)
-
-
-def pick_current_tournament(sb: Client) -> Dict[str, Any]:
-    q = (
-        sb.table("tournaments")
-        .select("id,name,espn_event_id,status")
-        .neq("status", "Complete")
-        .order("created_at", desc=True)
-        .limit(1)
-        .execute()
-    )
-    rows = q.data or []
-    if not rows:
-        raise RuntimeError("No active tournament found in Supabase")
-    return rows[0]
 
 
 def map_odds_to_golfers(sb: Client, tournament_id: str, odds: List[OddsRow]) -> List[Dict[str, Any]]:

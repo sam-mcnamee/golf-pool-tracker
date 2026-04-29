@@ -12,7 +12,7 @@ export async function Header() {
     <header className="border-b">
       <div className="container flex h-14 items-center justify-between">
         <Link href="/" className="font-semibold">
-          Golf Pool
+          Chode Emporium Golf Pool
         </Link>
         <div className="flex items-center gap-2">
           {user ? (

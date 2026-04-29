@@ -30,6 +30,16 @@ export async function POST(req: Request) {
   if (!parsed.success) return NextResponse.json({ error: parsed.error.message }, { status: 400 });
 
   const { tournamentId, rules } = parsed.data;
+
+  const { data: frozen } = await supabase
+    .from("odds_snapshots")
+    .select("id")
+    .eq("tournament_id", tournamentId)
+    .maybeSingle();
+  if (frozen?.id) {
+    return NextResponse.json({ error: "Tiers are already frozen for this tournament." }, { status: 409 });
+  }
+
   const rows = rules.map((r) => ({ tournament_id: tournamentId, ...r }));
   const { error } = await supabase.from("tier_rules").upsert(rows, { onConflict: "tournament_id,tier" });
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });

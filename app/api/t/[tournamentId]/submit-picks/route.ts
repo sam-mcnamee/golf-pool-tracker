@@ -3,7 +3,8 @@ import { z } from "zod";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const bodySchema = z.object({
-  golferTierIds: z.array(z.string().uuid()).length(7)
+  golferTierIds: z.array(z.string().uuid()).length(7),
+  predictedWinningScoreRelPar: z.number().int()
 });
 
 export async function POST(request: Request, { params }: { params: Promise<{ tournamentId: string }> }) {
@@ -26,7 +27,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ tou
 
   const { error } = await supabase.rpc("submit_picks", {
     p_tournament_id: tournamentId,
-    p_golfer_tier_ids: parsed.data.golferTierIds
+    p_golfer_tier_ids: parsed.data.golferTierIds,
+    p_predicted_winning_score_rel_par: parsed.data.predictedWinningScoreRelPar
   });
 
   if (error) {

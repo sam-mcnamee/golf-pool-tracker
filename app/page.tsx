@@ -17,7 +17,7 @@ export default async function HomePage() {
   return (
     <div className="space-y-6">
       <div className="space-y-2">
-        <h1 className="text-3xl font-semibold tracking-tight">7-Tier Golf Pool Tracker</h1>
+        <h1 className="text-3xl font-semibold tracking-tight">Chode Emporium Golf Pool</h1>
         <p className="text-slate-600">
           Pick exactly 1 golfer per tier. Your score is the sum of your best 4 golfers. If fewer than 4 make the
           cut, you’re marked <span className="font-semibold">MC</span>.

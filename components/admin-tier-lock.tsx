@@ -52,7 +52,7 @@ export function AdminTierLock() {
         <Textarea
           value={source}
           onChange={(e) => setSource(e.target.value)}
-          placeholder="https://... OR { \"tournament\": ..., \"golfers\": [...] }"
+          placeholder={'https://... OR { "tournament": ..., "golfers": [...] }'}
         />
         <div className="flex gap-2">
           <Button onClick={onRun} disabled={!source || status === "running"}>

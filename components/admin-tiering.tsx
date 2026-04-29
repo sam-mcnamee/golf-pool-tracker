@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -34,15 +35,19 @@ export function AdminTiering({
   tournamentId,
   odds,
   rules,
-  overrides
+  overrides,
+  hasFrozenTiers
 }: {
   tournamentId: string;
   odds: OddsRow[];
   rules: Rule[];
   overrides: Override[];
+  hasFrozenTiers: boolean;
 }) {
+  const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const frozen = hasFrozenTiers;
 
   const [ruleState, setRuleState] = useState<Record<number, { min: string; max: string }>>(() => {
     const init: Record<number, { min: string; max: string }> = {};
@@ -95,6 +100,7 @@ export function AdminTiering({
       const json = await res.json().catch(() => null);
       if (!res.ok) throw new Error(json?.error ?? "Failed saving rules");
       setMessage("Saved tier rules.");
+      router.refresh();
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "Failed");
     } finally {
@@ -113,7 +119,8 @@ export function AdminTiering({
       });
       const json = await res.json().catch(() => null);
       if (!res.ok) throw new Error(json?.error ?? "Failed setting override");
-      setMessage("Saved override. Refresh the page to see updated overrides.");
+      setMessage("Saved override.");
+      router.refresh();
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "Failed");
     } finally {
@@ -133,6 +140,7 @@ export function AdminTiering({
       const json = await res.json().catch(() => null);
       if (!res.ok) throw new Error(json?.error ?? "Failed freezing tiers");
       setMessage("Frozen tiers.");
+      router.refresh();
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "Failed");
     } finally {
@@ -142,10 +150,22 @@ export function AdminTiering({
 
   return (
     <div className="space-y-4">
+      {frozen ? (
+        <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          Tier list is frozen for this tournament. Rules and manual bumps are locked; picks use{" "}
+          <code className="rounded bg-amber-100 px-1">golfer_tiers</code>. Entry lock timing still follows{" "}
+          <code className="rounded bg-amber-100 px-1">lock_at</code> / the pool scheduler.
+        </p>
+      ) : null}
+
       <Card>
         <CardHeader>
           <CardTitle>Tier rules (American odds)</CardTitle>
-          <CardDescription>Define 7 odds ranges. Suggested tier is derived from these rules.</CardDescription>
+          <CardDescription>
+            Define 7 odds ranges. Suggested tier is derived from these rules. “Freeze tiers” writes{" "}
+            <code className="rounded bg-slate-100 px-1">golfer_tiers</code> for the pick sheet (separate from tournament{" "}
+            <code className="rounded bg-slate-100 px-1">Open/Locked</code> status).
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="grid gap-3 md:grid-cols-2">
@@ -157,21 +177,23 @@ export function AdminTiering({
                     placeholder="min (e.g. 0)"
                     value={ruleState[tier]?.min ?? ""}
                     onChange={(e) => setRuleState((s) => ({ ...s, [tier]: { ...s[tier], min: e.target.value } }))}
+                    disabled={frozen}
                   />
                   <Input
                     placeholder="max (e.g. 1000)"
                     value={ruleState[tier]?.max ?? ""}
                     onChange={(e) => setRuleState((s) => ({ ...s, [tier]: { ...s[tier], max: e.target.value } }))}
+                    disabled={frozen}
                   />
                 </div>
               </div>
             ))}
           </div>
-          <div className="flex items-center gap-2">
-            <Button onClick={saveRules} disabled={saving}>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button onClick={saveRules} disabled={saving || frozen}>
               {saving ? "Saving..." : "Save rules"}
             </Button>
-            <Button variant="secondary" onClick={freeze} disabled={saving}>
+            <Button variant="secondary" onClick={freeze} disabled={saving || frozen}>
               Freeze tiers
             </Button>
             {message ? <div className="text-sm text-slate-700">{message}</div> : null}
@@ -199,13 +221,23 @@ export function AdminTiering({
                 {o.overrideTier ? <Badge variant="secondary">Override</Badge> : null}
                 {o.golfer_id ? (
                   <>
-                    <Button variant="outline" size="sm" onClick={() => setOverride(o.golfer_id as string, Math.max(1, (o.finalTier ?? 4) - 1))} disabled={saving}>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setOverride(o.golfer_id as string, Math.max(1, (o.finalTier ?? 4) - 1))}
+                      disabled={saving || frozen}
+                    >
                       Up
                     </Button>
-                    <Button variant="outline" size="sm" onClick={() => setOverride(o.golfer_id as string, Math.min(7, (o.finalTier ?? 4) + 1))} disabled={saving}>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setOverride(o.golfer_id as string, Math.min(7, (o.finalTier ?? 4) + 1))}
+                      disabled={saving || frozen}
+                    >
                       Down
                     </Button>
-                    <Button variant="secondary" size="sm" onClick={() => setOverride(o.golfer_id as string, null)} disabled={saving}>
+                    <Button variant="secondary" size="sm" onClick={() => setOverride(o.golfer_id as string, null)} disabled={saving || frozen}>
                       Clear
                     </Button>
                   </>

@@ -17,3 +17,9 @@ export function computeMadeCutCount(picks: PickedGolfer[]) {
   return picks.filter((p) => p.is_cut === true).length;
 }
 
+/** Smaller is better when ordering ties (closest to actual winning score vs par). */
+export function tiebreakDistanceVsActual(predictedRelPar: number | null, actualRelPar: number | null): number | null {
+  if (predictedRelPar === null || actualRelPar === null) return null;
+  return Math.abs(predictedRelPar - actualRelPar);
+}
+

@@ -24,6 +24,15 @@ export async function POST(req: Request) {
 
   const { tournamentId, golferId, tier } = parsed.data;
 
+  const { data: frozen } = await supabase
+    .from("odds_snapshots")
+    .select("id")
+    .eq("tournament_id", tournamentId)
+    .maybeSingle();
+  if (frozen?.id) {
+    return NextResponse.json({ error: "Tiers are already frozen for this tournament." }, { status: 409 });
+  }
+
   if (tier === null) {
     const { error } = await supabase.from("tier_overrides").delete().eq("tournament_id", tournamentId).eq("golfer_id", golferId);
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });

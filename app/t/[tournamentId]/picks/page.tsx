@@ -31,6 +31,20 @@ export default async function PicksPage({ params }: { params: Promise<{ tourname
     throw new Error(picksErr.message);
   }
 
-  return <PicksClient tournamentId={tournamentId} tiers={tiers ?? []} existingPicks={existingPicks ?? []} />;
+  const { data: tiebreakerRow } = await supabase
+    .from("tiebreakers")
+    .select("predicted_winning_score_rel_par")
+    .eq("tournament_id", tournamentId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  return (
+    <PicksClient
+      tournamentId={tournamentId}
+      tiers={tiers ?? []}
+      existingPicks={existingPicks ?? []}
+      existingPredictedRelPar={tiebreakerRow?.predicted_winning_score_rel_par ?? null}
+    />
+  );
 }
 
