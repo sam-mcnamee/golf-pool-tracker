@@ -3,7 +3,7 @@
 ### Setup
 - **Supabase**
   - Run the SQL in [`supabase/schema.sql`](supabase/schema.sql) in the Supabase SQL editor.
-  - Enable Email OTP / Magic Link auth in Supabase Auth settings.
+  - Enable Google OAuth in Supabase Auth settings (Email OTP/Magic Link is not used).
 
 - **Env**
   - Copy `.env.example` to `.env.local` and fill in values.
