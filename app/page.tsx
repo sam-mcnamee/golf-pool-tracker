@@ -4,27 +4,12 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
-function formatWhen(iso: string | null) {
-  if (!iso) return null;
-  try {
-    return new Intl.DateTimeFormat(undefined, {
-      weekday: "short",
-      month: "short",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit"
-    }).format(new Date(iso));
-  } catch {
-    return iso;
-  }
-}
-
 export default async function HomePage() {
   const supabase = await createSupabaseServerClient();
 
   const { data: tournaments } = await supabase
     .from("tournaments")
-    .select("id,name,status,open_at,lock_at")
+    .select("id,name,status")
     .order("created_at", { ascending: false })
     .limit(1);
 
@@ -64,20 +49,7 @@ export default async function HomePage() {
                   <div className="text-sm text-slate-600">
                     Status: <span className="font-medium text-club-navy">{t.status}</span>
                   </div>
-                  <dl className="grid gap-1 text-xs text-slate-500 sm:text-sm">
-                    {formatWhen(t.open_at) ? (
-                      <div>
-                        <dt className="inline font-medium text-slate-600">Opens: </dt>
-                        <dd className="inline">{formatWhen(t.open_at)}</dd>
-                      </div>
-                    ) : null}
-                    {formatWhen(t.lock_at) ? (
-                      <div>
-                        <dt className="inline font-medium text-slate-600">Locks: </dt>
-                        <dd className="inline">{formatWhen(t.lock_at)}</dd>
-                      </div>
-                    ) : null}
-                  </dl>
+                  <p className="text-sm text-slate-600">Get your picks in before 1 AM PST.</p>
                 </div>
                 <div className="flex w-full flex-col gap-2 sm:w-auto sm:min-w-[220px]">
                   <Button asChild className="w-full bg-club-navy text-white hover:bg-club-navy/90">
