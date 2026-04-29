@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -68,6 +69,7 @@ export function PicksClient({
   tournamentStatus: string;
   tournamentName: string;
 }) {
+  const router = useRouter();
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
   const tiersByNumber = useMemo(() => {
     const map = new Map<number, TierRow[]>();
@@ -163,6 +165,7 @@ export function PicksClient({
       }
 
       setMessage("Saved.");
+      router.push("/");
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "Submit failed");
     } finally {
@@ -302,11 +305,20 @@ export function PicksClient({
           <Input
             id="rel-par"
             type="text"
-            inputMode="numeric"
+            inputMode="text"
             pattern="-?[0-9]*"
             placeholder="-12"
             value={predictedRelParInput}
-            onChange={(e) => setPredictedRelParInput(e.target.value)}
+            onChange={(e) => {
+              const raw = e.target.value;
+              if (raw === "" || raw === "-") {
+                setPredictedRelParInput(raw);
+                return;
+              }
+              const sign = raw.trim().startsWith("-") ? "-" : "";
+              const digits = raw.replace(/[^0-9]/g, "");
+              setPredictedRelParInput(`${sign}${digits}`);
+            }}
           />
         </CardContent>
       </Card>
