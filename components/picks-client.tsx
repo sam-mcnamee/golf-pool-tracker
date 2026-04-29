@@ -355,7 +355,6 @@ export function PicksClient({
                               <div className="truncate font-medium">{golfer?.name ?? "Unknown golfer"}</div>
                               <div className="shrink-0 text-xs text-slate-600">{row.odds_text ?? ""}</div>
                             </div>
-                            <div className="text-xs text-slate-600">ESPN athlete: {golfer?.espn_athlete_id ?? "n/a"}</div>
                           </div>
                         </label>
                       );
