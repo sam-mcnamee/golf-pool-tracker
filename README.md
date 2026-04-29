@@ -22,5 +22,15 @@ npm run dev
 - Configure repository secrets: `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`.
 - Locally: `pip install -r scraper/requirements.txt`, then from the repo root run `python scraper/run_odds_pipeline.py`.
 
-### Admin tier locking
-- Visit `/admin/<ADMIN_SECRET>`.\n- Paste a URL that returns JSON, or paste JSON directly.\n\nExpected JSON shape:\n\n```json\n{\n  \"tournament\": {\n    \"name\": \"THE PLAYERS Championship\",\n    \"espn_event_id\": \"401811937\",\n    \"open_at\": \"2026-04-20T12:00:00.000Z\",\n    \"lock_at\": \"2026-04-23T11:00:00.000Z\",\n    \"first_tee_at\": \"2026-04-23T12:00:00.000Z\"\n  },\n  \"golfers\": [\n    { \"name\": \"Scottie Scheffler\", \"espn_athlete_id\": \"39974\", \"odds_text\": \"+550\" }\n  ]\n}\n```\n\nIf you don’t provide explicit `tier` values, tiers are auto-assigned by sorting on `odds_text/odds` and chunking into 7 buckets.\n+
+### Admin in the web app (`/admin`)
+- After you sign in, an **Admin** link appears in the header only if your user has `profiles.is_admin = true` in Supabase.
+- Grant yourself access once (Supabase SQL editor), using the email you use with Google sign-in:
+
+```sql
+update public.profiles
+set is_admin = true
+where user_id = (select id from auth.users where email = 'you@example.com' limit 1);
+```
+
+- Then open **`/admin`** (or use the header link). Odds, tier rules, overrides, and freeze live there.
+- Optional legacy JSON flow: **`/admin/<ADMIN_SECRET>`** if `ADMIN_SECRET` is set in env (separate from `is_admin`).

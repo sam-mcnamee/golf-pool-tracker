@@ -16,21 +16,37 @@ function displayName(user: User): string {
 
 export function HeaderAuth() {
   const [user, setUser] = useState<User | null | undefined>(undefined);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     const supabase = createSupabaseBrowserClient();
+    let cancelled = false;
+
+    async function refreshAdminFlag(uid: string | undefined) {
+      if (!uid) {
+        setIsAdmin(false);
+        return;
+      }
+      const { data: profile } = await supabase.from("profiles").select("is_admin").eq("user_id", uid).maybeSingle();
+      if (!cancelled) setIsAdmin(Boolean(profile?.is_admin));
+    }
 
     void supabase.auth.getUser().then(({ data: { user: u } }) => {
+      if (cancelled) return;
       setUser(u ?? null);
+      void refreshAdminFlag(u?.id);
     });
 
     const {
       data: { subscription }
     } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
+      const u = session?.user ?? null;
+      setUser(u);
+      void refreshAdminFlag(u?.id);
     });
 
     return () => {
+      cancelled = true;
       subscription.unsubscribe();
     };
   }, []);
@@ -48,10 +64,15 @@ export function HeaderAuth() {
   }
 
   return (
-    <div className="flex max-w-[min(100vw-8rem,22rem)] shrink-0 items-center gap-2 sm:gap-3">
+    <div className="flex max-w-[min(100vw-6rem,28rem)] shrink-0 flex-wrap items-center justify-end gap-2 sm:gap-3">
       <span className="truncate text-right text-sm font-medium text-club-navy" title={user.email ?? undefined}>
         {displayName(user)}
       </span>
+      {isAdmin ? (
+        <Button asChild variant="outline" size="sm" className="border-club-gold/50 bg-white text-club-navy hover:bg-club-cream">
+          <Link href="/admin">Admin</Link>
+        </Button>
+      ) : null}
       <form action="/auth/signout" method="post">
         <Button type="submit" variant="secondary" className="border-club-gold/40 bg-white text-club-navy hover:bg-club-cream">
           Sign out
