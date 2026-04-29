@@ -9,6 +9,13 @@ export default {
   ],
   theme: {
     extend: {
+      colors: {
+        club: {
+          navy: "#1a2b3c",
+          cream: "#fdf5e6",
+          gold: "#c5a059"
+        }
+      },
       container: {
         center: true,
         padding: "2rem",
