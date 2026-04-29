@@ -84,6 +84,7 @@ type LeaderRow = {
   teamName: string;
   personName: string;
   best4: number | null;
+  scoreToday: number | null;
   isMc: boolean;
   picks: (PickedGolfer & { tier: number; r1_score: number | null; r2_score: number | null; r3_score: number | null; r4_score: number | null })[];
   predictedRelPar: number | null;
@@ -101,6 +102,34 @@ function formatScore(value: number | null): string {
   if (value === null) return "-";
   if (value > 0) return `+${value}`;
   return String(value);
+}
+
+function detectCurrentRound(rows: (PickedGolfer & { r1_score: number | null; r2_score: number | null; r3_score: number | null; r4_score: number | null })[]): number | null {
+  for (let round = 4; round >= 1; round--) {
+    const hasRoundScore = rows.some((p) => {
+      const v = round === 1 ? p.r1_score : round === 2 ? p.r2_score : round === 3 ? p.r3_score : p.r4_score;
+      return typeof v === "number";
+    });
+    if (hasRoundScore) return round;
+  }
+  return null;
+}
+
+function sumRoundScore(
+  picks: (PickedGolfer & { r1_score: number | null; r2_score: number | null; r3_score: number | null; r4_score: number | null })[],
+  round: number | null
+): number | null {
+  if (!round) return null;
+  let hasAny = false;
+  let total = 0;
+  for (const p of picks) {
+    const v = round === 1 ? p.r1_score : round === 2 ? p.r2_score : round === 3 ? p.r3_score : p.r4_score;
+    if (typeof v === "number") {
+      hasAny = true;
+      total += v;
+    }
+  }
+  return hasAny ? total : null;
 }
 
 export function LeaderboardClient({ tournamentId }: { tournamentId: string }) {
@@ -173,6 +202,7 @@ export function LeaderboardClient({ tournamentId }: { tournamentId: string }) {
     }
 
     const computed: LeaderRow[] = [];
+    const allPicked: (PickedGolfer & { r1_score: number | null; r2_score: number | null; r3_score: number | null; r4_score: number | null })[] = [];
     for (const [user_id, ps] of byUser.entries()) {
       const profile = profileById.get(user_id);
       const personName = profile?.display_name?.trim() || "Unknown player";
@@ -217,7 +247,13 @@ export function LeaderboardClient({ tournamentId }: { tournamentId: string }) {
       const predictedRelPar = predictedByUser.get(user_id) ?? null;
       const tieDelta = tiebreakDistanceVsActual(predictedRelPar, actualRel);
       picked.sort((a, b) => a.tier - b.tier || a.name.localeCompare(b.name));
-      computed.push({ user_id, teamName, personName, best4, isMc, picks: picked, predictedRelPar, tieDelta });
+      allPicked.push(...picked);
+      computed.push({ user_id, teamName, personName, best4, scoreToday: null, isMc, picks: picked, predictedRelPar, tieDelta });
+    }
+
+    const currentRound = detectCurrentRound(allPicked);
+    for (const row of computed) {
+      row.scoreToday = sumRoundScore(row.picks, currentRound);
     }
 
     computed.sort((a, b) => {
@@ -302,6 +338,37 @@ export function LeaderboardClient({ tournamentId }: { tournamentId: string }) {
 
       {error ? <div className="text-sm text-red-600">{error}</div> : null}
       {loading ? <div className="text-sm text-slate-600">Loading...</div> : null}
+
+      <Card className="overflow-hidden border-club-gold/40 bg-club-cream/70">
+        <CardHeader className="rounded-t-md bg-club-navy py-3">
+          <CardTitle className="text-center text-2xl italic tracking-wide text-white">Chodesters</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="grid grid-cols-[2.5rem_minmax(8rem,1fr)_5rem_5rem] border-b border-club-gold/30 bg-club-cream/85 px-3 py-2 text-xs font-semibold uppercase text-slate-700">
+            <div>#</div>
+            <div>Team</div>
+            <div className="text-right">Overall</div>
+            <div className="text-right">Today</div>
+          </div>
+          <div>
+            {rows.map((r, idx) => (
+              <div
+                key={`glance-${r.user_id}`}
+                className="grid grid-cols-[2.5rem_minmax(8rem,1fr)_5rem_5rem] items-center border-b border-club-gold/20 px-3 py-2 text-sm"
+              >
+                <div className="font-semibold text-slate-700">{idx + 1}</div>
+                <div className="truncate font-medium text-slate-900">{r.teamName}</div>
+                <div className={`text-right tabular-nums font-semibold ${scoreClass(r.best4)}`}>{formatScore(r.best4)}</div>
+                <div className={`text-right tabular-nums font-semibold ${scoreClass(r.scoreToday)}`}>{formatScore(r.scoreToday)}</div>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="pt-1">
+        <h2 className="text-lg font-semibold text-club-navy">Scorecards</h2>
+      </div>
 
       <div className="grid gap-3">
         {rows.map((r, idx) => (
