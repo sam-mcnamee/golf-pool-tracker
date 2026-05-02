@@ -206,6 +206,43 @@ def parse_total_score(score_str: Optional[str]) -> Tuple[Optional[int], Optional
         return (None, s, None)
 
 
+def extract_competitor_score_display(row: Dict[str, Any]) -> Optional[str]:
+    """ESPN often returns score as {"value": 142.0, "displayValue": "-2"} — use displayValue for rel-to-par."""
+    for key in ("score", "displayScore", "totalScore"):
+        obj = row.get(key)
+        if isinstance(obj, dict):
+            dv = obj.get("displayValue")
+            if isinstance(dv, str) and dv.strip():
+                return dv
+        elif isinstance(obj, str) and obj.strip():
+            return obj
+    return None
+
+
+def today_score_from_linescores(linescores: Any) -> Optional[int]:
+    """Latest round's rel-to-par: highest period with a parseable displayValue on linescores."""
+    if not isinstance(linescores, list):
+        return None
+    best_period = 0
+    out: Optional[int] = None
+    for ls in linescores:
+        if not isinstance(ls, dict):
+            continue
+        period_raw = ls.get("period")
+        if not isinstance(period_raw, int) or period_raw < 1 or period_raw > 4:
+            continue
+        display = ls.get("displayValue")
+        if not isinstance(display, str) or not display.strip():
+            continue
+        rel, _st, _cut = parse_total_score(display)
+        if rel is None:
+            continue
+        if period_raw >= best_period:
+            best_period = period_raw
+            out = rel
+    return out
+
+
 @dataclass(frozen=True)
 class GolferUpdate:
     espn_athlete_id: str
@@ -215,6 +252,7 @@ class GolferUpdate:
     r3_score: Optional[int]
     r4_score: Optional[int]
     total_score: Optional[int]
+    today_score: Optional[int]
     thru: Optional[str]
     status: Optional[str]
     is_cut: Optional[bool]
@@ -243,8 +281,8 @@ def competitor_to_update(row: Dict[str, Any]) -> Optional[GolferUpdate]:
     if not athlete_id or not name:
         return None
 
-    score_str = row.get("score") or row.get("displayScore") or row.get("totalScore")
-    total_score, score_status, score_is_cut = parse_total_score(score_str if isinstance(score_str, str) else None)
+    score_display = extract_competitor_score_display(row)
+    total_score, score_status, score_is_cut = parse_total_score(score_display)
 
     status_text: Optional[str] = None
     is_cut: Optional[bool] = None
@@ -296,6 +334,8 @@ def competitor_to_update(row: Dict[str, Any]) -> Optional[GolferUpdate]:
     if is_cut is None and status_text and "CUT" in status_text.upper():
         is_cut = False
 
+    today_rel = today_score_from_linescores(linescores)
+
     thru = row.get("thru") or row.get("displayThru") or row.get("through")
     if not isinstance(thru, str):
         thru = None
@@ -308,6 +348,7 @@ def competitor_to_update(row: Dict[str, Any]) -> Optional[GolferUpdate]:
         r3_score=round_scores.get(3),
         r4_score=round_scores.get(4),
         total_score=total_score,
+        today_score=today_rel,
         thru=thru,
         status=status_text,
         is_cut=is_cut,
@@ -408,6 +449,7 @@ def main() -> int:
             "r3_score": u.r3_score,
             "r4_score": u.r4_score,
             "total_score": u.total_score,
+            "today_score": u.today_score,
             "thru": u.thru,
             "status": u.status,
             "is_cut": u.is_cut,

@@ -21,6 +21,7 @@ type RowPick = {
           | {
               name: string;
               total_score: number | null;
+              today_score: number | null;
               is_cut: boolean | null;
               status: string | null;
               r1_score: number | null;
@@ -31,6 +32,7 @@ type RowPick = {
           | {
               name: string;
               total_score: number | null;
+              today_score: number | null;
               is_cut: boolean | null;
               status: string | null;
               r1_score: number | null;
@@ -47,6 +49,7 @@ type RowPick = {
           | {
               name: string;
               total_score: number | null;
+              today_score: number | null;
               is_cut: boolean | null;
               status: string | null;
               r1_score: number | null;
@@ -57,6 +60,7 @@ type RowPick = {
           | {
               name: string;
               total_score: number | null;
+              today_score: number | null;
               is_cut: boolean | null;
               status: string | null;
               r1_score: number | null;
@@ -86,7 +90,14 @@ type LeaderRow = {
   best4: number | null;
   scoreToday: number | null;
   isMc: boolean;
-  picks: (PickedGolfer & { tier: number; r1_score: number | null; r2_score: number | null; r3_score: number | null; r4_score: number | null })[];
+  picks: (PickedGolfer & {
+    tier: number;
+    today_score: number | null;
+    r1_score: number | null;
+    r2_score: number | null;
+    r3_score: number | null;
+    r4_score: number | null;
+  })[];
   predictedRelPar: number | null;
   tieDelta: number | null;
 };
@@ -104,32 +115,19 @@ function formatScore(value: number | null): string {
   return String(value);
 }
 
-function detectCurrentRound(rows: (PickedGolfer & { r1_score: number | null; r2_score: number | null; r3_score: number | null; r4_score: number | null })[]): number | null {
-  for (let round = 4; round >= 1; round--) {
-    const hasRoundScore = rows.some((p) => {
-      const v = round === 1 ? p.r1_score : round === 2 ? p.r2_score : round === 3 ? p.r3_score : p.r4_score;
-      return typeof v === "number";
-    });
-    if (hasRoundScore) return round;
-  }
-  return null;
+/** Raw strokes for a round (not vs par). */
+function formatRoundStrokes(value: number | null): string {
+  if (value === null) return "-";
+  return String(value);
 }
 
-function sumRoundScore(
-  picks: (PickedGolfer & { r1_score: number | null; r2_score: number | null; r3_score: number | null; r4_score: number | null })[],
-  round: number | null
-): number | null {
-  if (!round) return null;
-  let hasAny = false;
-  let total = 0;
-  for (const p of picks) {
-    const v = round === 1 ? p.r1_score : round === 2 ? p.r2_score : round === 3 ? p.r3_score : p.r4_score;
-    if (typeof v === "number") {
-      hasAny = true;
-      total += v;
-    }
-  }
-  return hasAny ? total : null;
+/** Sum of best 4 today's rel-to-par scores (same rule as overall best-4). */
+function sumBest4TodayScores(picks: { today_score: number | null }[]): number | null {
+  const numeric = picks.map((p) => p.today_score).filter((s): s is number => typeof s === "number");
+  if (!numeric.length) return null;
+  numeric.sort((a, b) => a - b);
+  const best4 = numeric.slice(0, 4);
+  return best4.reduce((acc, s) => acc + s, 0);
 }
 
 export function LeaderboardClient({ tournamentId }: { tournamentId: string }) {
@@ -167,7 +165,7 @@ export function LeaderboardClient({ tournamentId }: { tournamentId: string }) {
     const { data: picks, error: picksErr } = await supabase
       .from("picks")
       .select(
-        "user_id,golfer_tiers:golfer_tier_id(tier,odds_text,golfers:golfer_id(name,total_score,is_cut,status,r1_score,r2_score,r3_score,r4_score))"
+        "user_id,golfer_tiers:golfer_tier_id(tier,odds_text,golfers:golfer_id(name,total_score,today_score,is_cut,status,r1_score,r2_score,r3_score,r4_score))"
       )
       .eq("tournament_id", tournamentId);
 
@@ -202,7 +200,6 @@ export function LeaderboardClient({ tournamentId }: { tournamentId: string }) {
     }
 
     const computed: LeaderRow[] = [];
-    const allPicked: (PickedGolfer & { r1_score: number | null; r2_score: number | null; r3_score: number | null; r4_score: number | null })[] = [];
     for (const [user_id, ps] of byUser.entries()) {
       const profile = profileById.get(user_id);
       const personName = profile?.display_name?.trim() || "Unknown player";
@@ -220,6 +217,7 @@ export function LeaderboardClient({ tournamentId }: { tournamentId: string }) {
           ): g is {
             name: string;
             total_score: number | null;
+            today_score: number | null;
             is_cut: boolean | null;
             status: string | null;
             r1_score: number | null;
@@ -232,6 +230,7 @@ export function LeaderboardClient({ tournamentId }: { tournamentId: string }) {
         .map((g) => ({
           name: g.name,
           total_score: g.total_score,
+          today_score: g.today_score,
           is_cut: g.is_cut,
           status: g.status,
           r1_score: g.r1_score,
@@ -243,17 +242,12 @@ export function LeaderboardClient({ tournamentId }: { tournamentId: string }) {
 
       const madeCut = computeMadeCutCount(picked);
       const best4 = computeBest4(picked).sum;
+      const scoreToday = sumBest4TodayScores(picked);
       const isMc = Boolean(t.cut_complete && madeCut < 4);
       const predictedRelPar = predictedByUser.get(user_id) ?? null;
       const tieDelta = tiebreakDistanceVsActual(predictedRelPar, actualRel);
       picked.sort((a, b) => a.tier - b.tier || a.name.localeCompare(b.name));
-      allPicked.push(...picked);
-      computed.push({ user_id, teamName, personName, best4, scoreToday: null, isMc, picks: picked, predictedRelPar, tieDelta });
-    }
-
-    const currentRound = detectCurrentRound(allPicked);
-    for (const row of computed) {
-      row.scoreToday = sumRoundScore(row.picks, currentRound);
+      computed.push({ user_id, teamName, personName, best4, scoreToday, isMc, picks: picked, predictedRelPar, tieDelta });
     }
 
     computed.sort((a, b) => {
@@ -426,10 +420,10 @@ export function LeaderboardClient({ tournamentId }: { tournamentId: string }) {
                       <div className="truncate text-slate-800">
                         T{p.tier} · {p.name}
                       </div>
-                      <div className={`text-right tabular-nums ${scoreClass(p.r1_score)}`}>{formatScore(p.r1_score)}</div>
-                      <div className={`text-right tabular-nums ${scoreClass(p.r2_score)}`}>{formatScore(p.r2_score)}</div>
-                      <div className={`text-right tabular-nums ${scoreClass(p.r3_score)}`}>{formatScore(p.r3_score)}</div>
-                      <div className={`text-right tabular-nums ${scoreClass(p.r4_score)}`}>{formatScore(p.r4_score)}</div>
+                      <div className="text-right tabular-nums text-slate-800">{formatRoundStrokes(p.r1_score)}</div>
+                      <div className="text-right tabular-nums text-slate-800">{formatRoundStrokes(p.r2_score)}</div>
+                      <div className="text-right tabular-nums text-slate-800">{formatRoundStrokes(p.r3_score)}</div>
+                      <div className="text-right tabular-nums text-slate-800">{formatRoundStrokes(p.r4_score)}</div>
                       <div className={`text-right tabular-nums font-semibold ${scoreClass(p.total_score)}`}>
                         {formatScore(p.total_score)}
                         {p.is_cut === false ? <span className="ml-2 text-xs text-red-700">CUT</span> : null}
@@ -458,12 +452,18 @@ export function LeaderboardClient({ tournamentId }: { tournamentId: string }) {
                         : scoreClass(p.total_score);
 
                   const r3Text =
-                    p.is_cut === false && p.r3_score === null ? "MC" : formatScore(p.r3_score);
+                    p.is_cut === false && p.r3_score === null ? "MC" : formatRoundStrokes(p.r3_score);
                   const r4Text =
-                    p.is_cut === false && p.r4_score === null ? "MC" : formatScore(p.r4_score);
+                    p.is_cut === false && p.r4_score === null ? "MC" : formatRoundStrokes(p.r4_score);
 
-                  const r3Class = p.is_cut === false && p.r3_score === null ? "text-red-700 font-semibold tabular-nums" : `tabular-nums ${scoreClass(p.r3_score)} font-semibold`;
-                  const r4Class = p.is_cut === false && p.r4_score === null ? "text-red-700 font-semibold tabular-nums" : `tabular-nums ${scoreClass(p.r4_score)} font-semibold`;
+                  const r3Class =
+                    p.is_cut === false && p.r3_score === null
+                      ? "text-red-700 font-semibold tabular-nums"
+                      : "tabular-nums font-semibold text-slate-800";
+                  const r4Class =
+                    p.is_cut === false && p.r4_score === null
+                      ? "text-red-700 font-semibold tabular-nums"
+                      : "tabular-nums font-semibold text-slate-800";
 
                   return (
                     <div
@@ -482,11 +482,11 @@ export function LeaderboardClient({ tournamentId }: { tournamentId: string }) {
                       <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
                         <div className="flex items-center justify-between rounded bg-white/50 px-2 py-1">
                           <span className="text-[10px] font-medium uppercase tracking-wide text-slate-500">R1</span>
-                          <span className={`tabular-nums font-semibold ${scoreClass(p.r1_score)}`}>{formatScore(p.r1_score)}</span>
+                          <span className="tabular-nums font-semibold text-slate-800">{formatRoundStrokes(p.r1_score)}</span>
                         </div>
                         <div className="flex items-center justify-between rounded bg-white/50 px-2 py-1">
                           <span className="text-[10px] font-medium uppercase tracking-wide text-slate-500">R2</span>
-                          <span className={`tabular-nums font-semibold ${scoreClass(p.r2_score)}`}>{formatScore(p.r2_score)}</span>
+                          <span className="tabular-nums font-semibold text-slate-800">{formatRoundStrokes(p.r2_score)}</span>
                         </div>
                         <div className="flex items-center justify-between rounded bg-white/50 px-2 py-1">
                           <span className="text-[10px] font-medium uppercase tracking-wide text-slate-500">R3</span>
