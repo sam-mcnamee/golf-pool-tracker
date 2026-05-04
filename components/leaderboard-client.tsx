@@ -148,6 +148,29 @@ function roundCellClassName(p: RoundPick, round: 1 | 2 | 3 | 4): string {
   return "tabular-nums text-slate-800";
 }
 
+/** True if `a` has a strictly better leaderboard position than `b` (lower best4; non-MC ahead of MC). */
+function strictlyBetterScore(a: LeaderRow, b: LeaderRow): boolean {
+  if (a.isMc !== b.isMc) return !a.isMc && b.isMc;
+  const as = a.best4 ?? Number.POSITIVE_INFINITY;
+  const bs = b.best4 ?? Number.POSITIVE_INFINITY;
+  return as < bs;
+}
+
+/** Competition ranks (1,1,1,4…); labels use T{n} when multiple teams share rank n. */
+function competitionRankLabels(rows: LeaderRow[]): string[] {
+  if (!rows.length) return [];
+  const ranks = rows.map((_, i) => {
+    let rank = 1;
+    for (let j = 0; j < i; j++) {
+      if (strictlyBetterScore(rows[j], rows[i])) rank++;
+    }
+    return rank;
+  });
+  const countByRank = new Map<number, number>();
+  for (const r of ranks) countByRank.set(r, (countByRank.get(r) ?? 0) + 1);
+  return ranks.map((r) => (countByRank.get(r)! > 1 ? `T${r}` : String(r)));
+}
+
 export function LeaderboardClient({ tournamentId }: { tournamentId: string }) {
   const [rows, setRows] = useState<LeaderRow[]>([]);
   const [tournament, setTournament] = useState<Tournament | null>(null);
@@ -156,6 +179,7 @@ export function LeaderboardClient({ tournamentId }: { tournamentId: string }) {
   const [isAuthed, setIsAuthed] = useState<boolean>(false);
 
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
+  const rankLabels = useMemo(() => competitionRankLabels(rows), [rows]);
 
   async function load() {
     setLoading(true);
@@ -355,7 +379,7 @@ export function LeaderboardClient({ tournamentId }: { tournamentId: string }) {
           <CardTitle className="text-center text-2xl italic tracking-wide text-white">Chodesters</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
-          <div className="grid grid-cols-[2.25rem_minmax(0,1fr)_4rem] border-b border-club-gold/30 bg-club-cream/85 px-3 py-2 text-xs font-semibold uppercase text-slate-700">
+          <div className="grid grid-cols-[minmax(2.5rem,auto)_minmax(0,1fr)_4rem] border-b border-club-gold/30 bg-club-cream/85 px-3 py-2 text-xs font-semibold uppercase text-slate-700">
             <div>#</div>
             <div>Team</div>
             <div className="text-right">Overall</div>
@@ -364,9 +388,9 @@ export function LeaderboardClient({ tournamentId }: { tournamentId: string }) {
             {rows.map((r, idx) => (
               <div
                 key={`glance-${r.user_id}`}
-                className="grid grid-cols-[2.25rem_minmax(0,1fr)_4rem] items-center border-b border-club-gold/20 px-3 py-2 text-sm"
+                className="grid grid-cols-[minmax(2.5rem,auto)_minmax(0,1fr)_4rem] items-center border-b border-club-gold/20 px-3 py-2 text-sm"
               >
-                <div className="font-semibold text-slate-700">{idx + 1}</div>
+                <div className="font-semibold tabular-nums text-slate-700">{rankLabels[idx] ?? String(idx + 1)}</div>
                 <div className="min-w-0 truncate font-medium text-slate-900">{r.teamName}</div>
                 <div className={`text-right tabular-nums font-semibold ${scoreClass(r.best4)}`}>{formatScore(r.best4)}</div>
               </div>
@@ -386,7 +410,7 @@ export function LeaderboardClient({ tournamentId }: { tournamentId: string }) {
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <CardTitle className="truncate text-xl text-club-navy">
-                    #{idx + 1} · {r.teamName}
+                    #{rankLabels[idx] ?? String(idx + 1)} · {r.teamName}
                   </CardTitle>
                   <div className="truncate text-xs text-slate-700">{r.personName}</div>
                 </div>
