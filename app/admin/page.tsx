@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { sortTournamentsByScheduleDesc } from "@/lib/domain/tournament-sort";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { AdminCreateTournament } from "@/components/admin-create-tournament";
 import { AdminOddsUpload } from "@/components/admin-odds-upload";
 import { AdminTiering } from "@/components/admin-tiering";
 import { AdminTournamentPicker } from "@/components/admin-tournament-picker";
@@ -26,11 +27,22 @@ export default async function AdminHome({ searchParams }: Props) {
     .select("id,name,status,starts_at,first_tee_at,lock_at,open_at,created_at");
 
   const list = sortTournamentsByScheduleDesc(tournaments ?? []);
-  if (list.length === 0) redirect("/");
-
   const requestedId = sp.tournamentId;
   const firstActive = list.find((row) => row.status !== "Complete");
-  const t = list.find((row) => row.id === requestedId) ?? firstActive ?? list[0];
+  const t = list.find((row) => row.id === requestedId) ?? firstActive ?? list[0] ?? null;
+
+  if (!t) {
+    return (
+      <div className="space-y-4">
+        <div className="space-y-1">
+          <h1 className="text-2xl font-semibold tracking-tight">Admin</h1>
+          <p className="text-sm text-slate-600">No tournaments in the database yet.</p>
+        </div>
+        <AdminCreateTournament />
+        <p className="text-sm text-slate-600">Create a tournament above to manage odds and tiering.</p>
+      </div>
+    );
+  }
 
   const [{ data: odds }, { data: rules }, { data: overrides }, { data: snapshot }] = await Promise.all([
     supabase
@@ -57,6 +69,9 @@ export default async function AdminHome({ searchParams }: Props) {
           {t.name} · Status: {t.status}
         </p>
       </div>
+
+      <AdminCreateTournament />
+
       <AdminTournamentPicker tournaments={list} currentId={t.id} />
       <AdminOddsUpload
         tournamentId={t.id}

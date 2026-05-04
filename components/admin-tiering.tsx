@@ -150,23 +150,77 @@ export function AdminTiering({
     }
   }
 
+  async function unfreeze() {
+    setSaving(true);
+    setMessage(null);
+    try {
+      let res = await fetch("/api/admin/tiering/unfreeze", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ tournamentId })
+      });
+      let json = (await res.json().catch(() => null)) as {
+        error?: string;
+        pickCount?: number;
+        needsConfirmDeletePicks?: boolean;
+      } | null;
+
+      if (res.status === 409 && json?.needsConfirmDeletePicks) {
+        const ok = window.confirm(
+          `${json.error ?? "Picks must be cleared first."}\n\nDelete ${json.pickCount ?? 0} pick row(s) and unfreeze?`
+        );
+        if (!ok) {
+          setSaving(false);
+          return;
+        }
+        res = await fetch("/api/admin/tiering/unfreeze", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ tournamentId, confirmDeletePicks: true })
+        });
+        json = await res.json().catch(() => null);
+      }
+
+      if (!res.ok) throw new Error(json?.error ?? "Unfreeze failed");
+      setMessage("Tiers unfrozen. You can replace odds or freeze again.");
+      router.refresh();
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <div className="space-y-4">
       {editLocked ? (
-        <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-          {hasFrozenTiers ? (
-            <>
-              Tier list is frozen for this tournament. Rules and manual bumps are locked; picks use{" "}
-              <code className="rounded bg-amber-100 px-1">golfer_tiers</code>. Entry lock timing still follows{" "}
-              <code className="rounded bg-amber-100 px-1">lock_at</code> / the pool scheduler.
-            </>
-          ) : (
-            <>
-              This tournament is complete. Rules and manual bumps are view-only; picks use{" "}
-              <code className="rounded bg-amber-100 px-1">golfer_tiers</code> from the freeze.
-            </>
-          )}
-        </p>
+        <div className="flex flex-col gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-amber-900">
+            {hasFrozenTiers ? (
+              <>
+                Tier list is frozen for this tournament. Rules and manual bumps are locked; picks use{" "}
+                <code className="rounded bg-amber-100 px-1">golfer_tiers</code>. Entry lock timing still follows{" "}
+                <code className="rounded bg-amber-100 px-1">lock_at</code> / the pool scheduler.
+              </>
+            ) : (
+              <>
+                This tournament is complete. Rules and manual bumps are view-only; picks use{" "}
+                <code className="rounded bg-amber-100 px-1">golfer_tiers</code> from the freeze.
+              </>
+            )}
+          </p>
+          {hasFrozenTiers && tournamentStatus !== "Complete" ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="shrink-0 border-red-300 text-red-800 hover:bg-red-50"
+              disabled={saving}
+              onClick={() => void unfreeze()}
+            >
+              Unfreeze tiers
+            </Button>
+          ) : null}
+        </div>
       ) : null}
 
       <Card>
