@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { AdminOddsUpload } from "@/components/admin-odds-upload";
 import { AdminTiering } from "@/components/admin-tiering";
 import { AdminTournamentPicker } from "@/components/admin-tournament-picker";
 
@@ -57,6 +58,7 @@ export default async function AdminHome({ searchParams }: Props) {
         </p>
       </div>
       <AdminTournamentPicker tournaments={list} currentId={t.id} />
+      <AdminOddsUpload tournamentId={t.id} disabled={hasFrozenTiers} />
       <AdminTiering
         key={t.id}
         tournamentId={t.id}
