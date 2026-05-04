@@ -270,7 +270,9 @@ export function AdminTiering({
         <CardHeader>
           <CardTitle>Odds (best → worst)</CardTitle>
           <CardDescription>
-            Imported odds rows: {odds.length}. Unmatched golfers can’t be overridden until they match an ESPN golfer record.
+            Imported odds rows: {odds.length}. <strong>Unmatched</strong> means no <code className="text-xs">golfers</code> row for this
+            tournament with that name (or optional pasted ESPN athlete id). Run the ESPN field sync so the roster exists, fix spelling vs ESPN,
+            or paste <code className="text-xs">Name[TAB]odds[TAB]espnId</code> on the manual odds upload card.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">

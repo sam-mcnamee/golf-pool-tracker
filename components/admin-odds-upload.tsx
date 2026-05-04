@@ -6,7 +6,17 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 
-export type ParsedOddsRow = { golfer_name: string; odds_american: number };
+export type ParsedOddsRow = { golfer_name: string; odds_american: number; espn_athlete_id?: string };
+
+function parseAmericanOddsToken(s: string): number | null {
+  const odds = Number.parseInt(s.replace(/^\+/, ""), 10);
+  if (!Number.isFinite(odds) || !Number.isInteger(odds)) return null;
+  return odds;
+}
+
+function looksLikeEspnAthleteId(s: string): boolean {
+  return /^\d{4,12}$/.test(s.trim());
+}
 
 /** Parse textarea: one golfer per line. Tab-separated, or "Name, +1200" / "Name  +1200". Lines starting with # ignored. */
 export function parseOddsPaste(text: string): { rows: ParsedOddsRow[]; errors: string[] } {
@@ -21,15 +31,41 @@ export function parseOddsPaste(text: string): { rows: ParsedOddsRow[]; errors: s
 
     let name: string;
     let oddsStr: string;
+    let espnAthleteId: string | undefined;
 
     if (t.includes("\t")) {
-      const parts = t.split("\t").map((p) => p.trim());
+      const parts = t.split("\t").map((p) => p.trim()).filter((p) => p.length > 0);
       if (parts.length < 2) {
         errors.push(`Line ${lineNo}: need name and odds (tab-separated).`);
         continue;
       }
-      name = parts.slice(0, -1).join("\t").trim();
-      oddsStr = parts[parts.length - 1]!;
+
+      const last = parts[parts.length - 1]!;
+      const first = parts[0]!;
+
+      if (parts.length >= 3 && looksLikeEspnAthleteId(last)) {
+        const oddsCandidate = parts[parts.length - 2]!;
+        const parsedOdds = parseAmericanOddsToken(oddsCandidate);
+        if (parsedOdds === null) {
+          errors.push(`Line ${lineNo}: expected American odds before ESPN id column.`);
+          continue;
+        }
+        oddsStr = oddsCandidate;
+        name = parts.slice(0, -2).join("\t").trim();
+        espnAthleteId = last.trim();
+      } else if (parts.length >= 3 && looksLikeEspnAthleteId(first)) {
+        const parsedOdds = parseAmericanOddsToken(last);
+        if (parsedOdds === null) {
+          errors.push(`Line ${lineNo}: last column must be American odds when leading ESPN id is used.`);
+          continue;
+        }
+        oddsStr = last;
+        name = parts.slice(1, -1).join("\t").trim();
+        espnAthleteId = first.trim();
+      } else {
+        oddsStr = last;
+        name = parts.slice(0, -1).join("\t").trim();
+      }
     } else {
       const comma = t.lastIndexOf(",");
       if (comma > 0) {
@@ -46,8 +82,8 @@ export function parseOddsPaste(text: string): { rows: ParsedOddsRow[]; errors: s
       }
     }
 
-    const odds = Number.parseInt(oddsStr.replace(/^\+/, ""), 10);
-    if (!Number.isFinite(odds) || !Number.isInteger(odds)) {
+    const odds = parseAmericanOddsToken(oddsStr);
+    if (odds === null) {
       errors.push(`Line ${lineNo}: invalid odds "${oddsStr}".`);
       continue;
     }
@@ -55,7 +91,9 @@ export function parseOddsPaste(text: string): { rows: ParsedOddsRow[]; errors: s
       errors.push(`Line ${lineNo}: name length invalid.`);
       continue;
     }
-    rows.push({ golfer_name: name, odds_american: odds });
+    const row: ParsedOddsRow = { golfer_name: name, odds_american: odds };
+    if (espnAthleteId) row.espn_athlete_id = espnAthleteId;
+    rows.push(row);
   }
   return { rows, errors };
 }
@@ -116,15 +154,18 @@ export function AdminOddsUpload({
         <CardTitle>Upload odds (manual)</CardTitle>
         <CardDescription>
           If the automated odds sync fails, paste a list here. It <strong>replaces</strong> all rows in{" "}
-          <code className="text-xs">tournament_odds_latest</code> for this tournament. Use before freezing tiers. One golfer per line:
-          tab-separated name and American odds, or <code className="text-xs">Scottie Scheffler, +450</code>.
+          <code className="text-xs">tournament_odds_latest</code> for this tournament. Rows link to the{" "}
+          <code className="text-xs">golfers</code> field list for this event (run the ESPN leaderboard sync first). Matching is by{" "}
+          <strong>normalized name</strong>, or add an ESPN athlete id column:{" "}
+          <code className="text-xs">Name[TAB]+450[TAB]46046</code> or <code className="text-xs">46046[TAB]Name[TAB]+450</code>. Also{" "}
+          <code className="text-xs">Name, +450</code> works.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         <Textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder={"Scottie Scheffler\t+450\nRory McIlroy, +800\nTiger Woods  +5000\n# comments start with #"}
+          placeholder={"Scottie Scheffler\t+450\t46046\nRory McIlroy, +800\nTiger Woods  +5000\n# comments start with #"}
           rows={10}
           disabled={disabled || busy}
           className="font-mono text-sm"

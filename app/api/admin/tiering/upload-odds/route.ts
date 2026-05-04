@@ -5,7 +5,8 @@ import { normalizeGolferNameKey } from "@/lib/domain/name-normalize";
 
 const rowSchema = z.object({
   golfer_name: z.string().trim().min(1).max(200),
-  odds_american: z.number().int()
+  odds_american: z.number().int(),
+  espn_athlete_id: z.string().trim().regex(/^\d+$/).max(20).optional()
 });
 
 const bodySchema = z.object({
@@ -13,13 +14,22 @@ const bodySchema = z.object({
   rows: z.array(rowSchema).min(1).max(300)
 });
 
+function betterOddsRow(a: z.infer<typeof rowSchema>, b: z.infer<typeof rowSchema>): z.infer<typeof rowSchema> {
+  if (a.odds_american !== b.odds_american) return a.odds_american < b.odds_american ? a : b;
+  const aE = Boolean(a.espn_athlete_id);
+  const bE = Boolean(b.espn_athlete_id);
+  if (aE !== bE) return aE ? a : b;
+  return a.golfer_name.localeCompare(b.golfer_name) <= 0 ? a : b;
+}
+
 function dedupeByNormalizedName(rows: z.infer<typeof rowSchema>[]): z.infer<typeof rowSchema>[] {
   const best = new Map<string, z.infer<typeof rowSchema>>();
   for (const r of rows) {
     const key = normalizeGolferNameKey(r.golfer_name);
     if (!key) continue;
     const prev = best.get(key);
-    if (!prev || r.odds_american < prev.odds_american) best.set(key, r);
+    if (!prev) best.set(key, r);
+    else best.set(key, betterOddsRow(prev, r));
   }
   return [...best.values()].sort((a, b) => a.odds_american - b.odds_american || a.golfer_name.localeCompare(b.golfer_name));
 }
@@ -56,18 +66,24 @@ export async function POST(req: Request) {
 
   const adminSb = adminSbCheck;
 
-  const { data: golfers, error: gErr } = await adminSb.from("golfers").select("id,name").eq("tournament_id", tournamentId);
+  const { data: golfers, error: gErr } = await adminSb.from("golfers").select("id,name,espn_athlete_id").eq("tournament_id", tournamentId);
   if (gErr) return NextResponse.json({ error: gErr.message }, { status: 400 });
 
   const byNorm = new Map<string, string>();
+  const byEspn = new Map<string, string>();
   for (const g of golfers ?? []) {
     const k = normalizeGolferNameKey(g.name);
     if (k && !byNorm.has(k)) byNorm.set(k, g.id);
+    const eid = g.espn_athlete_id != null ? String(g.espn_athlete_id).trim() : "";
+    if (eid && !byEspn.has(eid)) byEspn.set(eid, g.id);
   }
 
   const now = new Date().toISOString();
   const insertRows = rows.map((r) => {
-    const gid = byNorm.get(normalizeGolferNameKey(r.golfer_name)) ?? null;
+    let gid: string | null = null;
+    const pastedEspn = r.espn_athlete_id?.trim();
+    if (pastedEspn) gid = byEspn.get(pastedEspn) ?? null;
+    if (!gid) gid = byNorm.get(normalizeGolferNameKey(r.golfer_name)) ?? null;
     return {
       tournament_id: tournamentId,
       golfer_name: r.golfer_name.trim(),

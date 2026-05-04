@@ -17,8 +17,11 @@ export function normalizeGolferNameKey(s: string): string {
   ] as const) {
     t = t.split(old).join(rep);
   }
-  return t
+  t = t
     .toLowerCase()
     .replace(/[^a-z]+/g, " ")
     .trim();
+  // Books often omit or spell suffixes differently than ESPN roster names.
+  t = t.replace(/\b(jr|sr|ii|iii|iv)\b/gi, "").replace(/\s+/g, " ").trim();
+  return t;
 }
