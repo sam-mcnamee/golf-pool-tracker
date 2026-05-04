@@ -253,6 +253,7 @@ class GolferUpdate:
     r4_score: Optional[int]
     total_score: Optional[int]
     today_score: Optional[int]
+    current_round: Optional[int]
     thru: Optional[str]
     status: Optional[str]
     is_cut: Optional[bool]
@@ -302,6 +303,7 @@ def competitor_to_update(row: Dict[str, Any]) -> Optional[GolferUpdate]:
 
     linescores = row.get("linescores")
     round_scores: Dict[int, int] = {}
+    current_round_ip: Optional[int] = None
     if isinstance(linescores, list):
         for ls in linescores:
             if not isinstance(ls, dict):
@@ -312,19 +314,23 @@ def competitor_to_update(row: Dict[str, Any]) -> Optional[GolferUpdate]:
             if period_raw < 1 or period_raw > 4:
                 continue
 
+            in_sc = ls.get("inScore")
+            out_sc = ls.get("outScore")
+            both_halves = isinstance(in_sc, (int, float)) and isinstance(out_sc, (int, float))
             value = ls.get("value")
-            score_int: Optional[int] = None
-            if isinstance(value, (int, float)):
-                score_int = int(value)
-            else:
-                display = ls.get("displayValue")
-                if not isinstance(display, str):
-                    display = ls.get("score") if isinstance(ls.get("score"), str) else None
-                parsed, _st, _cut = parse_total_score(display)
-                score_int = parsed
 
-            if score_int is not None:
-                round_scores[period_raw] = score_int
+            if both_halves:
+                if isinstance(value, (int, float)):
+                    round_scores[period_raw] = int(value)
+                else:
+                    try:
+                        round_scores[period_raw] = int(in_sc) + int(out_sc)
+                    except (TypeError, ValueError):
+                        if period_raw >= (current_round_ip or 0):
+                            current_round_ip = period_raw
+            else:
+                if period_raw >= (current_round_ip or 0):
+                    current_round_ip = period_raw
 
     # Weekend rounds implies made cut.
     if is_cut is None and isinstance(linescores, list) and len(linescores) >= 3:
@@ -349,6 +355,7 @@ def competitor_to_update(row: Dict[str, Any]) -> Optional[GolferUpdate]:
         r4_score=round_scores.get(4),
         total_score=total_score,
         today_score=today_rel,
+        current_round=current_round_ip,
         thru=thru,
         status=status_text,
         is_cut=is_cut,
@@ -450,6 +457,7 @@ def main() -> int:
             "r4_score": u.r4_score,
             "total_score": u.total_score,
             "today_score": u.today_score,
+            "current_round": u.current_round,
             "thru": u.thru,
             "status": u.status,
             "is_cut": u.is_cut,
