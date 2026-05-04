@@ -60,7 +60,16 @@ export function parseOddsPaste(text: string): { rows: ParsedOddsRow[]; errors: s
   return { rows, errors };
 }
 
-export function AdminOddsUpload({ tournamentId, disabled }: { tournamentId: string; disabled: boolean }) {
+export function AdminOddsUpload({
+  tournamentId,
+  disabled,
+  disabledReason
+}: {
+  tournamentId: string;
+  disabled: boolean;
+  /** Shown when disabled (frozen vs complete, etc.). */
+  disabledReason?: string;
+}) {
   const router = useRouter();
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -132,7 +141,7 @@ export function AdminOddsUpload({ tournamentId, disabled }: { tournamentId: stri
           ) : null}
         </div>
         {message ? <p className="text-sm text-slate-800">{message}</p> : null}
-        {disabled ? <p className="text-sm text-amber-800">Odds upload is disabled after tiers are frozen.</p> : null}
+        {disabled && disabledReason ? <p className="text-sm text-amber-800">{disabledReason}</p> : null}
       </CardContent>
     </Card>
   );

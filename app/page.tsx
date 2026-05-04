@@ -1,19 +1,28 @@
 import Image from "next/image";
 import Link from "next/link";
+import { sortTournamentsByScheduleDesc } from "@/lib/domain/tournament-sort";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
+const tournamentListSelect =
+  "id,name,status,starts_at,first_tee_at,lock_at,open_at,created_at" as const;
+
 export default async function HomePage() {
   const supabase = await createSupabaseServerClient();
 
-  const { data: tournaments } = await supabase
+  const { data: activeRows } = await supabase
     .from("tournaments")
-    .select("id,name,status")
-    .order("created_at", { ascending: false })
-    .limit(1);
+    .select(tournamentListSelect)
+    .neq("status", "Complete");
 
-  const t = tournaments?.[0];
+  let sorted = sortTournamentsByScheduleDesc(activeRows ?? []);
+  if (!sorted.length) {
+    const { data: allRows } = await supabase.from("tournaments").select(tournamentListSelect);
+    sorted = sortTournamentsByScheduleDesc(allRows ?? []);
+  }
+
+  const t = sorted[0];
 
   return (
     <div className="space-y-10">
@@ -39,7 +48,9 @@ export default async function HomePage() {
         <Card className="border-club-gold/30 shadow-md">
           <CardHeader className="border-b border-club-gold/15 bg-club-cream/40 pb-4">
             <CardTitle className="text-club-navy">Current tournament</CardTitle>
-            <CardDescription className="text-slate-600">Most recent event in the pool.</CardDescription>
+            <CardDescription className="text-slate-600">
+              Active event with the latest tee week (by start / lock time, not only DB row order).
+            </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-6 pt-6 sm:flex-row sm:items-center sm:justify-between">
             {t ? (
@@ -62,17 +73,31 @@ export default async function HomePage() {
                   >
                     <Link href={`/t/${t.id}/leaderboard`}>Leaderboard</Link>
                   </Button>
-                  <Link
-                    href="/team-stats"
-                    className="text-center text-sm font-medium text-club-navy underline decoration-club-gold/60 underline-offset-2 hover:decoration-club-gold"
-                  >
-                    Team Stats
-                  </Link>
+                  <div className="flex flex-col gap-2 text-center text-sm font-medium text-club-navy sm:text-left">
+                    <Link
+                      href="/leaderboards"
+                      className="underline decoration-club-gold/60 underline-offset-2 hover:decoration-club-gold"
+                    >
+                      Browse all leaderboards
+                    </Link>
+                    <Link
+                      href="/team-stats"
+                      className="underline decoration-club-gold/60 underline-offset-2 hover:decoration-club-gold"
+                    >
+                      Team Stats
+                    </Link>
+                  </div>
                 </div>
               </>
             ) : (
-              <div className="text-sm text-slate-600">
-                No tournaments yet. Create one via the admin page after you apply the Supabase schema.
+              <div className="space-y-3 text-sm text-slate-600">
+                <p>No tournaments yet. Create one via the admin page after you apply the Supabase schema.</p>
+                <Link
+                  href="/leaderboards"
+                  className="font-medium text-club-navy underline decoration-club-gold/60 underline-offset-2 hover:decoration-club-gold"
+                >
+                  Leaderboards index
+                </Link>
               </div>
             )}
           </CardContent>

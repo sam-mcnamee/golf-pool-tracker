@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
   computeBest4,
@@ -171,7 +172,17 @@ function competitionRankLabels(rows: LeaderRow[]): string[] {
   return ranks.map((r) => (countByRank.get(r)! > 1 ? `T${r}` : String(r)));
 }
 
-export function LeaderboardClient({ tournamentId }: { tournamentId: string }) {
+export type LeaderboardTournamentChoice = { id: string; name: string; status: string };
+
+export function LeaderboardClient({
+  tournamentId,
+  tournamentChoices
+}: {
+  tournamentId: string;
+  /** When set, shows an event switcher; each event keeps its own saved leaderboard. */
+  tournamentChoices?: LeaderboardTournamentChoice[];
+}) {
+  const router = useRouter();
   const [rows, setRows] = useState<LeaderRow[]>([]);
   const [tournament, setTournament] = useState<Tournament | null>(null);
   const [loading, setLoading] = useState(true);
@@ -355,9 +366,33 @@ export function LeaderboardClient({ tournamentId }: { tournamentId: string }) {
             )}
           </p>
         </div>
-        <Button variant="secondary" onClick={() => void load()} disabled={loading}>
-          Refresh
-        </Button>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:gap-3">
+          {tournamentChoices && tournamentChoices.length > 0 ? (
+            <div className="flex min-w-[min(100%,16rem)] flex-col gap-1">
+              <label htmlFor="leaderboard-event" className="text-xs font-medium text-slate-600">
+                Event
+              </label>
+              <select
+                id="leaderboard-event"
+                className="rounded-md border border-slate-300 bg-white px-2 py-2 text-sm text-slate-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+                value={tournamentId}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  if (id && id !== tournamentId) router.push(`/t/${id}/leaderboard`);
+                }}
+              >
+                {tournamentChoices.map((opt) => (
+                  <option key={opt.id} value={opt.id}>
+                    {opt.name} ({opt.status})
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
+          <Button variant="secondary" onClick={() => void load()} disabled={loading}>
+            Refresh
+          </Button>
+        </div>
       </div>
 
       {!isAuthed ? (

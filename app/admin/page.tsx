@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { sortTournamentsByScheduleDesc } from "@/lib/domain/tournament-sort";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { AdminOddsUpload } from "@/components/admin-odds-upload";
 import { AdminTiering } from "@/components/admin-tiering";
@@ -22,15 +23,14 @@ export default async function AdminHome({ searchParams }: Props) {
 
   const { data: tournaments } = await supabase
     .from("tournaments")
-    .select("id,name,status")
-    .neq("status", "Complete")
-    .order("created_at", { ascending: false });
+    .select("id,name,status,starts_at,first_tee_at,lock_at,open_at,created_at");
 
-  const list = tournaments ?? [];
+  const list = sortTournamentsByScheduleDesc(tournaments ?? []);
   if (list.length === 0) redirect("/");
 
   const requestedId = sp.tournamentId;
-  const t = list.find((row) => row.id === requestedId) ?? list[0];
+  const firstActive = list.find((row) => row.status !== "Complete");
+  const t = list.find((row) => row.id === requestedId) ?? firstActive ?? list[0];
 
   const [{ data: odds }, { data: rules }, { data: overrides }, { data: snapshot }] = await Promise.all([
     supabase
@@ -58,10 +58,21 @@ export default async function AdminHome({ searchParams }: Props) {
         </p>
       </div>
       <AdminTournamentPicker tournaments={list} currentId={t.id} />
-      <AdminOddsUpload tournamentId={t.id} disabled={hasFrozenTiers} />
+      <AdminOddsUpload
+        tournamentId={t.id}
+        disabled={hasFrozenTiers || t.status === "Complete"}
+        disabledReason={
+          hasFrozenTiers
+            ? "Tiers are frozen for this tournament; odds cannot be replaced."
+            : t.status === "Complete"
+              ? "This tournament is complete; odds cannot be replaced."
+              : undefined
+        }
+      />
       <AdminTiering
         key={t.id}
         tournamentId={t.id}
+        tournamentStatus={t.status}
         odds={odds ?? []}
         rules={rules ?? []}
         overrides={overrides ?? []}

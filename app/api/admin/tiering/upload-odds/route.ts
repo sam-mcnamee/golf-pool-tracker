@@ -45,10 +45,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Tiers are already frozen; odds cannot be replaced." }, { status: 409 });
   }
 
+  const adminSbCheck = createSupabaseServiceRoleClient();
+  const { data: tRow } = await adminSbCheck.from("tournaments").select("status").eq("id", tournamentId).maybeSingle();
+  if (tRow?.status === "Complete") {
+    return NextResponse.json({ error: "Cannot replace odds for a completed tournament." }, { status: 400 });
+  }
+
   const rows = dedupeByNormalizedName(rawRows);
   if (!rows.length) return NextResponse.json({ error: "No valid odds rows after dedupe." }, { status: 400 });
 
-  const adminSb = createSupabaseServiceRoleClient();
+  const adminSb = adminSbCheck;
 
   const { data: golfers, error: gErr } = await adminSb.from("golfers").select("id,name").eq("tournament_id", tournamentId);
   if (gErr) return NextResponse.json({ error: gErr.message }, { status: 400 });

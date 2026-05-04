@@ -6,7 +6,7 @@ export function Header() {
   return (
     <header className="border-b border-club-gold/25 bg-club-cream/50">
       <div className="container flex h-16 items-center justify-between gap-4">
-        <Link href="/" className="flex min-w-0 items-center gap-3 text-club-navy">
+        <Link href="/" className="flex min-w-0 shrink-0 items-center gap-3 text-club-navy">
           <Image
             src="/logo.png"
             alt="Chode Emporium Golf Pool crest"
@@ -17,7 +17,15 @@ export function Header() {
           />
           <span className="truncate font-semibold tracking-tight sm:inline">Chode Emporium Golf Pool</span>
         </Link>
-        <HeaderAuth />
+        <nav className="flex shrink-0 items-center gap-3 text-sm">
+          <Link
+            href="/leaderboards"
+            className="font-medium text-club-navy underline decoration-club-gold/50 underline-offset-2 hover:decoration-club-gold"
+          >
+            Leaderboards
+          </Link>
+          <HeaderAuth />
+        </nav>
       </div>
     </header>
   );

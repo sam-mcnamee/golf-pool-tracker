@@ -33,12 +33,14 @@ function suggestedTier(rules: Rule[], odds: number): number | null {
 
 export function AdminTiering({
   tournamentId,
+  tournamentStatus,
   odds,
   rules,
   overrides,
   hasFrozenTiers
 }: {
   tournamentId: string;
+  tournamentStatus: string;
   odds: OddsRow[];
   rules: Rule[];
   overrides: Override[];
@@ -47,7 +49,7 @@ export function AdminTiering({
   const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const frozen = hasFrozenTiers;
+  const editLocked = hasFrozenTiers || tournamentStatus === "Complete";
 
   const [ruleState, setRuleState] = useState<Record<number, { min: string; max: string }>>(() => {
     const init: Record<number, { min: string; max: string }> = {};
@@ -150,11 +152,20 @@ export function AdminTiering({
 
   return (
     <div className="space-y-4">
-      {frozen ? (
+      {editLocked ? (
         <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-          Tier list is frozen for this tournament. Rules and manual bumps are locked; picks use{" "}
-          <code className="rounded bg-amber-100 px-1">golfer_tiers</code>. Entry lock timing still follows{" "}
-          <code className="rounded bg-amber-100 px-1">lock_at</code> / the pool scheduler.
+          {hasFrozenTiers ? (
+            <>
+              Tier list is frozen for this tournament. Rules and manual bumps are locked; picks use{" "}
+              <code className="rounded bg-amber-100 px-1">golfer_tiers</code>. Entry lock timing still follows{" "}
+              <code className="rounded bg-amber-100 px-1">lock_at</code> / the pool scheduler.
+            </>
+          ) : (
+            <>
+              This tournament is complete. Rules and manual bumps are view-only; picks use{" "}
+              <code className="rounded bg-amber-100 px-1">golfer_tiers</code> from the freeze.
+            </>
+          )}
         </p>
       ) : null}
 
@@ -177,23 +188,23 @@ export function AdminTiering({
                     placeholder="min (e.g. 0)"
                     value={ruleState[tier]?.min ?? ""}
                     onChange={(e) => setRuleState((s) => ({ ...s, [tier]: { ...s[tier], min: e.target.value } }))}
-                    disabled={frozen}
+                    disabled={editLocked}
                   />
                   <Input
                     placeholder="max (e.g. 1000)"
                     value={ruleState[tier]?.max ?? ""}
                     onChange={(e) => setRuleState((s) => ({ ...s, [tier]: { ...s[tier], max: e.target.value } }))}
-                    disabled={frozen}
+                    disabled={editLocked}
                   />
                 </div>
               </div>
             ))}
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button onClick={saveRules} disabled={saving || frozen}>
+            <Button onClick={saveRules} disabled={saving || editLocked}>
               {saving ? "Saving..." : "Save rules"}
             </Button>
-            <Button variant="secondary" onClick={freeze} disabled={saving || frozen}>
+            <Button variant="secondary" onClick={freeze} disabled={saving || editLocked}>
               Freeze tiers
             </Button>
             {message ? <div className="text-sm text-slate-700">{message}</div> : null}
@@ -225,7 +236,7 @@ export function AdminTiering({
                       variant="outline"
                       size="sm"
                       onClick={() => setOverride(o.golfer_id as string, Math.max(1, (o.finalTier ?? 4) - 1))}
-                      disabled={saving || frozen}
+                      disabled={saving || editLocked}
                     >
                       Up
                     </Button>
@@ -233,11 +244,11 @@ export function AdminTiering({
                       variant="outline"
                       size="sm"
                       onClick={() => setOverride(o.golfer_id as string, Math.min(7, (o.finalTier ?? 4) + 1))}
-                      disabled={saving || frozen}
+                      disabled={saving || editLocked}
                     >
                       Down
                     </Button>
-                    <Button variant="secondary" size="sm" onClick={() => setOverride(o.golfer_id as string, null)} disabled={saving || frozen}>
+                    <Button variant="secondary" size="sm" onClick={() => setOverride(o.golfer_id as string, null)} disabled={saving || editLocked}>
                       Clear
                     </Button>
                   </>
