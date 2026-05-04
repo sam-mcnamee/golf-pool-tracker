@@ -598,7 +598,8 @@ select
 from agg a
 join public.tournaments t on t.id = a.tournament_id;
 
--- Bootstrap public.profiles for new users (Google OAuth, magic link, etc.).
+-- Bootstrap public.profiles for new users (Google OAuth, etc.).
+-- Prefer provider "name" / "full_name" / given+family; keep existing non-empty display_name on conflict.
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
@@ -607,11 +608,28 @@ set search_path = public
 as $$
 declare
   v_name text;
+  v_given text;
+  v_family text;
+  v_from_parts text;
 begin
+  v_given := nullif(trim(coalesce(new.raw_user_meta_data->>'given_name', '')), '');
+  v_family := nullif(trim(coalesce(new.raw_user_meta_data->>'family_name', '')), '');
+  if v_given is not null and v_family is not null then
+    v_from_parts := trim(v_given || ' ' || v_family);
+  elsif v_given is not null then
+    v_from_parts := v_given;
+  elsif v_family is not null then
+    v_from_parts := v_family;
+  else
+    v_from_parts := null;
+  end if;
+
   v_name := trim(coalesce(
-    new.raw_user_meta_data->>'full_name',
-    new.raw_user_meta_data->>'name',
-    new.raw_user_meta_data->>'preferred_username',
+    nullif(trim(coalesce(new.raw_user_meta_data->>'name', '')), ''),
+    nullif(trim(coalesce(new.raw_user_meta_data->>'full_name', '')), ''),
+    v_from_parts,
+    nullif(trim(coalesce(new.raw_user_meta_data->>'preferred_username', '')), ''),
+    nullif(trim(coalesce(new.raw_user_meta_data->>'user_name', '')), ''),
     split_part(coalesce(new.email, ''), '@', 1)
   ));
   if v_name = '' then
@@ -620,7 +638,11 @@ begin
 
   insert into public.profiles (user_id, display_name)
   values (new.id, v_name)
-  on conflict (user_id) do nothing;
+  on conflict (user_id) do update
+  set display_name = case
+    when trim(coalesce(profiles.display_name, '')) <> '' then profiles.display_name
+    else coalesce(excluded.display_name, profiles.display_name)
+  end;
 
   return new;
 end;
