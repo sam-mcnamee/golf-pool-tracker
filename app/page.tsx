@@ -53,9 +53,6 @@ export default async function HomePage() {
         <Card className="border-club-gold/30 shadow-md">
           <CardHeader className="border-b border-club-gold/15 bg-club-cream/40 pb-4">
             <CardTitle className="text-club-navy">Current tournament</CardTitle>
-            <CardDescription className="text-slate-600">
-              Active event with the latest tee week (by start / lock time, not only DB row order).
-            </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-6 pt-6 sm:flex-row sm:items-center sm:justify-between">
             {t ? (
@@ -69,7 +66,6 @@ export default async function HomePage() {
                     &quot;Make Picks&quot; functionality will open Tuesday after player tiers are set. Users will be able to submit and modify
                     picks until the first tee time on Thursday.
                   </p>
-                  <p className="text-sm text-slate-600">Get your picks in before Thursday at 1 AM PST.</p>
                 </div>
                 <div className="flex w-full flex-col gap-2 sm:w-auto sm:min-w-[220px]">
                   <Button asChild className="w-full bg-club-navy text-white hover:bg-club-navy/90">
