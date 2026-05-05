@@ -32,7 +32,6 @@ type Profile = {
 
 type TeamAgg = {
   user_id: string;
-  team_name: string;
   display_name: string;
   avg_finish: number;
   majors_won: number;
@@ -154,12 +153,10 @@ export default async function TeamStatsPage() {
 
   const rows: TeamAgg[] = Array.from(finishByUser.entries()).map(([user_id, finishes]) => {
     const p = profileByUser.get(user_id);
-    const team_name = p?.team_name?.trim() || `Team ${user_id.slice(0, 8)}`;
     const display_name = p?.display_name?.trim() || "Unknown player";
     const avg_finish = finishes.reduce((a, b) => a + b, 0) / finishes.length;
     return {
       user_id,
-      team_name,
       display_name,
       avg_finish,
       majors_won: majorWinsByUser.get(user_id) ?? 0,
@@ -170,7 +167,7 @@ export default async function TeamStatsPage() {
   rows.sort((a, b) => {
     if (a.avg_finish !== b.avg_finish) return a.avg_finish - b.avg_finish;
     if (a.majors_won !== b.majors_won) return b.majors_won - a.majors_won;
-    return a.team_name.localeCompare(b.team_name);
+    return a.display_name.localeCompare(b.display_name);
   });
 
   return (
@@ -184,13 +181,12 @@ export default async function TeamStatsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Standings by team history</CardTitle>
+          <CardTitle>Standings by player history</CardTitle>
           <CardDescription>{rows.length} teams with completed results.</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-[minmax(10rem,1fr)_minmax(8rem,1fr)_7rem_6rem_6rem] gap-2 border-b border-slate-200 pb-2 text-xs font-medium uppercase tracking-wide text-slate-500">
-            <div>Team</div>
-            <div>Owner</div>
+          <div className="grid grid-cols-[minmax(10rem,1fr)_7rem_6rem_6rem] gap-2 border-b border-slate-200 pb-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+            <div>Player</div>
             <div className="text-right">Avg finish</div>
             <div className="text-right">Majors</div>
             <div className="text-right">Events</div>
@@ -199,10 +195,9 @@ export default async function TeamStatsPage() {
             {rows.map((r) => (
               <div
                 key={r.user_id}
-                className="grid grid-cols-[minmax(10rem,1fr)_minmax(8rem,1fr)_7rem_6rem_6rem] items-center gap-2 rounded-md border border-slate-100 px-2 py-2 text-sm"
+                className="grid grid-cols-[minmax(10rem,1fr)_7rem_6rem_6rem] items-center gap-2 rounded-md border border-slate-100 px-2 py-2 text-sm"
               >
-                <div className="truncate font-medium text-club-navy">{r.team_name}</div>
-                <div className="truncate text-slate-700">{r.display_name}</div>
+                <div className="truncate font-medium text-club-navy">{r.display_name}</div>
                 <div className="text-right tabular-nums text-slate-900">{r.avg_finish.toFixed(2)}</div>
                 <div className="text-right tabular-nums font-semibold text-slate-900">{r.majors_won}</div>
                 <div className="text-right tabular-nums text-slate-700">{r.tournaments_counted}</div>
