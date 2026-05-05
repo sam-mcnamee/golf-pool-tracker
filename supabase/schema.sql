@@ -501,6 +501,7 @@ as $$
 declare
   v_uid uuid;
   v_open boolean;
+  v_lock_at timestamptz;
   v_count int;
 begin
   v_uid := auth.uid();
@@ -508,13 +509,21 @@ begin
     raise exception 'not authenticated';
   end if;
 
-  select (t.status = 'Open')
-    into v_open
+  select
+    (t.status = 'Open'),
+    coalesce(t.first_tee_at, t.lock_at)
+  into
+    v_open,
+    v_lock_at
   from public.tournaments t
   where t.id = p_tournament_id;
 
   if v_open is distinct from true then
     raise exception 'tournament not open';
+  end if;
+
+  if v_lock_at is not null and now() >= v_lock_at then
+    raise exception 'tournament is locked';
   end if;
 
   if p_golfer_tier_ids is null or array_length(p_golfer_tier_ids, 1) <> 7 then

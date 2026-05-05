@@ -9,7 +9,7 @@ import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
 import requests
@@ -23,6 +23,7 @@ except ModuleNotFoundError:  # pragma: no cover
 
 
 ESPN_ENDPOINT = "https://site.api.espn.com/apis/site/v2/sports/golf/leaderboard"
+ESPN_CORE_BASE = "https://sports.core.api.espn.com/v2/sports/golf/leagues/pga"
 ET = ZoneInfo("America/New_York")
 
 
@@ -59,6 +60,96 @@ def espn_get_events(*, league: str = "pga", timeout_s: int = 20, retries: int = 
             last_err = e
             time.sleep(1.5 * (i + 1))
     raise RuntimeError(f"Failed to fetch ESPN events JSON after {retries} tries: {last_err}")
+
+
+def espn_get_json_url(url: str, *, timeout_s: int = 20, retries: int = 3) -> Dict[str, Any]:
+    last_err: Optional[Exception] = None
+    for i in range(retries):
+        try:
+            r = requests.get(url, timeout=timeout_s, headers={"accept": "application/json"})
+            r.raise_for_status()
+            return r.json()
+        except Exception as e:  # noqa: BLE001
+            last_err = e
+            time.sleep(1.5 * (i + 1))
+    raise RuntimeError(f"Failed to fetch ESPN JSON after {retries} tries: {last_err}")
+
+
+def _try_parse_iso_datetime(s: str) -> Optional[datetime]:
+    t = s.strip()
+    if not t:
+        return None
+    # ESPN commonly uses Z.
+    t = t.replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(t)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _iter_candidate_time_strings(obj: Any) -> Iterable[str]:
+    """
+    Heuristic scan for tee/start time fields in ESPN core payloads.
+    We keep this permissive because ESPN structures vary by event and pre/post tee-times.
+    """
+    wanted_keys = {
+        "teeTime",
+        "tee_time",
+        "teeTimeUTC",
+        "startDate",
+        "startTime",
+        "teeOffTime",
+        "teetime",
+        "teetimeutc",
+        "startdate",
+        "starttime",
+    }
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if isinstance(k, str) and k in wanted_keys and isinstance(v, str):
+                yield v
+            else:
+                yield from _iter_candidate_time_strings(v)
+    elif isinstance(obj, list):
+        for v in obj:
+            yield from _iter_candidate_time_strings(v)
+
+
+def compute_first_tee_time_utc_from_core(event_id: str) -> Optional[datetime]:
+    """
+    Attempt to compute the earliest Round 1 tee time using ESPN's Core API.
+    Returns a UTC datetime if found.
+    """
+    # Event details usually include competitions; competition payload often carries tee times.
+    event_url = f"{ESPN_CORE_BASE}/events/{event_id}"
+    event = espn_get_json_url(event_url)
+
+    comp_urls: List[str] = []
+    competitions = event.get("competitions")
+    if isinstance(competitions, list):
+        for c in competitions:
+            if isinstance(c, dict) and isinstance(c.get("$ref"), str):
+                comp_urls.append(str(c["$ref"]))
+            elif isinstance(c, str) and c.startswith("http"):
+                comp_urls.append(c)
+
+    # Prefer first competition; if none, fall back to scanning event itself.
+    payloads: List[Any] = []
+    if comp_urls:
+        payloads.append(espn_get_json_url(comp_urls[0]))
+    payloads.append(event)
+
+    candidates: List[datetime] = []
+    for p in payloads:
+        for s in _iter_candidate_time_strings(p):
+            dt = _try_parse_iso_datetime(s)
+            if dt is None:
+                continue
+            candidates.append(dt.astimezone(ZoneInfo("UTC")))
+
+    if not candidates:
+        return None
+    return min(candidates)
 
 
 def pick_primary_event(events_payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -118,7 +209,15 @@ def ensure_current_tournament(sb: Client) -> Tuple[str, str]:
     open_at_et, lock_at_et = compute_open_lock_from_start(start_date)
 
     first_tee_at_utc: Optional[str] = None
-    if start_date:
+    try:
+        first_tee_dt = compute_first_tee_time_utc_from_core(espn_event_id)
+        if first_tee_dt is not None:
+            first_tee_at_utc = first_tee_dt.isoformat()
+    except Exception:
+        # Tee times may not be published yet; fall back below.
+        first_tee_at_utc = None
+
+    if first_tee_at_utc is None and start_date:
         s = start_date.replace("Z", "+00:00")
         first_tee_at_utc = datetime.fromisoformat(s).astimezone(ZoneInfo("UTC")).isoformat()
 

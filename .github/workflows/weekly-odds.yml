@@ -1,13 +1,13 @@
-# Monday golf odds (three attempts): ESPN field + golfodds + DK Network + merge.
+# Tuesday golf odds (three attempts): ESPN field + golfodds + DK Network + merge.
 # GitHub cron is UTC only. These map to 1:00, 4:00, and 12:00 Pacific during PDT (UTC−7, ~Mar–Nov).
 # During PST (UTC−8), same UTC runs at 12:00a, 3:00a, 11:00a Pacific—shift each hour +1 in UTC if you want identical local winter times.
 name: Weekly golf odds pipeline
 
 on:
   schedule:
-    - cron: "0 8 * * 1" # ~1:00 Pacific (PDT)
-    - cron: "0 11 * * 1" # ~4:00 Pacific (PDT)
-    - cron: "0 19 * * 1" # ~12:00 Pacific noon (PDT)
+    - cron: "0 8 * * 2" # ~1:00 Pacific (PDT)
+    - cron: "0 11 * * 2" # ~4:00 Pacific (PDT)
+    - cron: "0 19 * * 2" # ~12:00 Pacific noon (PDT)
   workflow_dispatch:
 
 jobs:

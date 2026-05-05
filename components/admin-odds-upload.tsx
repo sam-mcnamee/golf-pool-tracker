@@ -5,13 +5,15 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
+import { parseOddsToAmerican } from "@/lib/domain/odds-normalize";
 
 export type ParsedOddsRow = { golfer_name: string; odds_american: number; espn_athlete_id?: string };
 
-function parseAmericanOddsToken(s: string): number | null {
-  const odds = Number.parseInt(s.replace(/^\+/, ""), 10);
-  if (!Number.isFinite(odds) || !Number.isInteger(odds)) return null;
-  return odds;
+function parseOddsTokenToAmerican(s: string): number | null {
+  const parsed = parseOddsToAmerican(s);
+  if (!parsed) return null;
+  // Store as positive integer for underdogs in our DB; favorites (negative) are allowed too.
+  return parsed.american;
 }
 
 function looksLikeEspnAthleteId(s: string): boolean {
@@ -45,18 +47,18 @@ export function parseOddsPaste(text: string): { rows: ParsedOddsRow[]; errors: s
 
       if (parts.length >= 3 && looksLikeEspnAthleteId(last)) {
         const oddsCandidate = parts[parts.length - 2]!;
-        const parsedOdds = parseAmericanOddsToken(oddsCandidate);
+        const parsedOdds = parseOddsTokenToAmerican(oddsCandidate);
         if (parsedOdds === null) {
-          errors.push(`Line ${lineNo}: expected American odds before ESPN id column.`);
+          errors.push(`Line ${lineNo}: expected odds before ESPN id column (e.g. +600 or 6/1).`);
           continue;
         }
         oddsStr = oddsCandidate;
         name = parts.slice(0, -2).join("\t").trim();
         espnAthleteId = last.trim();
       } else if (parts.length >= 3 && looksLikeEspnAthleteId(first)) {
-        const parsedOdds = parseAmericanOddsToken(last);
+        const parsedOdds = parseOddsTokenToAmerican(last);
         if (parsedOdds === null) {
-          errors.push(`Line ${lineNo}: last column must be American odds when leading ESPN id is used.`);
+          errors.push(`Line ${lineNo}: last column must be odds when leading ESPN id is used (e.g. +600 or 6/1).`);
           continue;
         }
         oddsStr = last;
@@ -72,9 +74,9 @@ export function parseOddsPaste(text: string): { rows: ParsedOddsRow[]; errors: s
         name = t.slice(0, comma).trim();
         oddsStr = t.slice(comma + 1).trim();
       } else {
-        const m = t.match(/^(.+?)\s+([+-]?\d+)\s*$/);
+        const m = t.match(/^(.+?)\s+([^\s]+)\s*$/);
         if (!m) {
-          errors.push(`Line ${lineNo}: use "Name, +1200" or "Name<TAB>+1200" or "Name  +1200".`);
+          errors.push(`Line ${lineNo}: use "Name, +1200" or "Name<TAB>+1200" or "Name  +1200" or "Name  6/1".`);
           continue;
         }
         name = m[1]!.trim();
@@ -82,7 +84,7 @@ export function parseOddsPaste(text: string): { rows: ParsedOddsRow[]; errors: s
       }
     }
 
-    const odds = parseAmericanOddsToken(oddsStr);
+    const odds = parseOddsTokenToAmerican(oddsStr);
     if (odds === null) {
       errors.push(`Line ${lineNo}: invalid odds "${oddsStr}".`);
       continue;
@@ -158,7 +160,7 @@ export function AdminOddsUpload({
           <code className="text-xs">golfers</code> field list for this event (run the ESPN leaderboard sync first). Matching is by{" "}
           <strong>normalized name</strong>, or add an ESPN athlete id column:{" "}
           <code className="text-xs">Name[TAB]+450[TAB]46046</code> or <code className="text-xs">46046[TAB]Name[TAB]+450</code>. Also{" "}
-          <code className="text-xs">Name, +450</code> works.
+          <code className="text-xs">Name, +450</code> works. Fractional odds like <code className="text-xs">6/1</code> are accepted too.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">

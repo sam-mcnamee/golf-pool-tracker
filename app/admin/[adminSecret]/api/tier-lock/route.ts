@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { compareAmericanOddsFavoriteFirst, parseOddsToAmerican } from "@/lib/domain/odds-normalize";
 
 const oddsGolferSchema = z.object({
   name: z.string().min(1),
@@ -22,19 +23,10 @@ const payloadSchema = z.object({
   golfers: z.array(oddsGolferSchema).min(7)
 });
 
-function parseOddsNumber(s: string | undefined) {
+function parseOddsAmerican(s: string | undefined): number | null {
   if (!s) return null;
-  // Handle formats like "+1200", "12/1", "1200", "12-1"
-  const normalized = s.trim();
-  const frac = normalized.match(/^(\d+(?:\.\d+)?)\s*[\/-]\s*(\d+(?:\.\d+)?)$/);
-  if (frac) {
-    const a = Number(frac[1]);
-    const b = Number(frac[2]);
-    if (Number.isFinite(a) && Number.isFinite(b) && b !== 0) return a / b;
-  }
-  const n = Number(normalized.replace(/[^0-9.+-]/g, ""));
-  if (!Number.isFinite(n)) return null;
-  return n;
+  const parsed = parseOddsToAmerican(s);
+  return parsed?.american ?? null;
 }
 
 function assignTiers(golfers: z.infer<typeof oddsGolferSchema>[]) {
@@ -47,13 +39,12 @@ function assignTiers(golfers: z.infer<typeof oddsGolferSchema>[]) {
   }
 
   const sorted = [...golfers].sort((a, b) => {
-    const ao = parseOddsNumber(a.odds_text ?? a.odds);
-    const bo = parseOddsNumber(b.odds_text ?? b.odds);
+    const ao = parseOddsAmerican(a.odds_text ?? a.odds);
+    const bo = parseOddsAmerican(b.odds_text ?? b.odds);
     if (ao === null && bo === null) return 0;
     if (ao === null) return 1;
     if (bo === null) return -1;
-    // Lower is better if fractional; if american, smaller absolute? We just keep numeric ascending.
-    return ao - bo;
+    return compareAmericanOddsFavoriteFirst(ao, bo);
   });
 
   const perTier = Math.ceil(sorted.length / 7);
