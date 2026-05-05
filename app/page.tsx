@@ -73,31 +73,17 @@ export default async function HomePage() {
                   >
                     <Link href={`/t/${t.id}/leaderboard`}>Leaderboard</Link>
                   </Button>
-                  <div className="flex flex-col gap-2 text-center text-sm font-medium text-club-navy sm:text-left">
-                    <Link
-                      href="/leaderboards"
-                      className="underline decoration-club-gold/60 underline-offset-2 hover:decoration-club-gold"
-                    >
-                      Browse all leaderboards
-                    </Link>
-                    <Link
-                      href="/team-stats"
-                      className="underline decoration-club-gold/60 underline-offset-2 hover:decoration-club-gold"
-                    >
-                      Team Stats
-                    </Link>
-                  </div>
+                  <Link
+                    href="/team-stats"
+                    className="text-center text-sm font-medium text-club-navy underline decoration-club-gold/60 underline-offset-2 hover:decoration-club-gold sm:text-left"
+                  >
+                    Team Stats
+                  </Link>
                 </div>
               </>
             ) : (
               <div className="space-y-3 text-sm text-slate-600">
                 <p>No tournaments yet. Create one via the admin page after you apply the Supabase schema.</p>
-                <Link
-                  href="/leaderboards"
-                  className="font-medium text-club-navy underline decoration-club-gold/60 underline-offset-2 hover:decoration-club-gold"
-                >
-                  Leaderboards index
-                </Link>
               </div>
             )}
           </CardContent>

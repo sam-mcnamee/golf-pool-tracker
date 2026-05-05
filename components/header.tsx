@@ -17,15 +17,7 @@ export function Header() {
           />
           <span className="truncate font-semibold tracking-tight sm:inline">Chode Emporium Golf Pool</span>
         </Link>
-        <nav className="flex shrink-0 items-center gap-3 text-sm">
-          <Link
-            href="/leaderboards"
-            className="font-medium text-club-navy underline decoration-club-gold/50 underline-offset-2 hover:decoration-club-gold"
-          >
-            Leaderboards
-          </Link>
-          <HeaderAuth />
-        </nav>
+        <HeaderAuth />
       </div>
     </header>
   );

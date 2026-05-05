@@ -13,7 +13,13 @@ from typing import Any, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
 import requests
-from supabase import Client, create_client
+try:
+    from supabase import Client, create_client  # type: ignore
+except ModuleNotFoundError:  # pragma: no cover
+    # Allow this script to run even when the Python `supabase` dependency isn't installed.
+    # We'll fall back to direct Supabase REST calls in that case.
+    Client = Any  # type: ignore
+    create_client = None  # type: ignore
 
 
 ESPN_ENDPOINT = "https://site.api.espn.com/apis/site/v2/sports/golf/leaderboard"
@@ -395,7 +401,9 @@ def main() -> int:
 
     supabase_url = must_env("SUPABASE_URL")
     service_key = must_env("SUPABASE_SERVICE_ROLE_KEY")
-    sb: Client = create_client(supabase_url, service_key)
+    sb: Optional[Client] = None
+    if create_client is not None:
+        sb = create_client(supabase_url, service_key)
 
     tournament_id: Optional[str] = args.tournament_id
     espn_event_id: Optional[str] = args.espn_event_id
@@ -403,6 +411,12 @@ def main() -> int:
     if not tournament_id or not espn_event_id:
         if args.mode != "current":
             raise RuntimeError("Provide --tournament-id and --espn-event-id, or use --mode current")
+
+        if sb is None:
+            raise RuntimeError(
+                "Python `supabase` dependency missing and explicit ids were not provided. "
+                "Run with --tournament-id and --espn-event-id."
+            )
 
         q = (
             sb.table("tournaments")
@@ -464,7 +478,19 @@ def main() -> int:
         }
         golfer_rows.append(row)
 
-    sb.table("golfers").upsert(golfer_rows, on_conflict="tournament_id,espn_athlete_id").execute()
+    if sb is not None:
+        sb.table("golfers").upsert(golfer_rows, on_conflict="tournament_id,espn_athlete_id").execute()
+    else:
+        # Direct REST fallback: works without supabase-py.
+        headers = {
+            "apikey": service_key,
+            "Authorization": f"Bearer {service_key}",
+            "Content-Type": "application/json",
+            "Prefer": "resolution=merge-duplicates,return=minimal",
+        }
+        url = f"{supabase_url}/rest/v1/golfers?on_conflict=tournament_id,espn_athlete_id"
+        r = requests.post(url, headers=headers, json=golfer_rows, timeout=30)
+        r.raise_for_status()
 
     # Update tournament flags.
     t_patch: Dict[str, Any] = {}
@@ -473,7 +499,17 @@ def main() -> int:
     if cut_complete:
         t_patch["cut_complete"] = True
     if t_patch:
-        sb.table("tournaments").update(t_patch).eq("id", tournament_id).execute()
+        if sb is not None:
+            sb.table("tournaments").update(t_patch).eq("id", tournament_id).execute()
+        else:
+            headers = {
+                "apikey": service_key,
+                "Authorization": f"Bearer {service_key}",
+                "Content-Type": "application/json",
+            }
+            url = f"{supabase_url}/rest/v1/tournaments?id=eq.{tournament_id}"
+            r = requests.patch(url, headers=headers, json=t_patch, timeout=30)
+            r.raise_for_status()
 
     print(f"Synced {len(updates)} golfers for tournament_id={tournament_id}")
     return 0
