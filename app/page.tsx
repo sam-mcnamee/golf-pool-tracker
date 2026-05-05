@@ -23,6 +23,11 @@ export default async function HomePage() {
   }
 
   const t = sorted[0];
+  const { data: snapshot } = t
+    ? await supabase.from("odds_snapshots").select("id").eq("tournament_id", t.id).maybeSingle()
+    : { data: null as { id: string } | null };
+  const hasFrozenTiers = Boolean(snapshot?.id);
+  const statusLabel = t ? (hasFrozenTiers ? "Open" : "Formulating Tiers") : null;
 
   return (
     <div className="space-y-10">
@@ -58,8 +63,12 @@ export default async function HomePage() {
                 <div className="min-w-0 space-y-2">
                   <div className="text-lg font-semibold text-club-navy">{t.name}</div>
                   <div className="text-sm text-slate-600">
-                    Status: <span className="font-medium text-club-navy">{t.status}</span>
+                    Status: <span className="font-medium text-club-navy">{statusLabel}</span>
                   </div>
+                  <p className="text-sm text-slate-600">
+                    &quot;Make Picks&quot; functionality will open Tuesday after player tiers are set. Users will be able to submit and modify
+                    picks until the first tee time on Thursday.
+                  </p>
                   <p className="text-sm text-slate-600">Get your picks in before Thursday at 1 AM PST.</p>
                 </div>
                 <div className="flex w-full flex-col gap-2 sm:w-auto sm:min-w-[220px]">

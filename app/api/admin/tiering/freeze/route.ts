@@ -103,6 +103,10 @@ export async function POST(req: Request) {
   const { error: tiersErr } = await adminSb.from("golfer_tiers").insert(tiersToInsert);
   if (tiersErr) return NextResponse.json({ error: tiersErr.message }, { status: 500 });
 
+  // Freezing tiers is the moment picks become available (RLS + RPC require status === 'Open').
+  const { error: openErr } = await adminSb.from("tournaments").update({ status: "Open" }).eq("id", tournamentId);
+  if (openErr) return NextResponse.json({ error: openErr.message }, { status: 500 });
+
   return NextResponse.json({ ok: true });
 }
 
