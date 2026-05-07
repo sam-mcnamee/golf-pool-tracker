@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import time
 from dataclasses import dataclass
@@ -327,6 +328,30 @@ def extract_competitor_score_display(row: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+_DETAIL_SCORE_RE = re.compile(r"^\s*(?P<score>E|[+-]?\d+)\s*(?:\(|$)", flags=re.I)
+
+
+def total_score_from_status_detail(status_obj: Any) -> Optional[int]:
+    """
+    ESPN live leaderboard commonly encodes the live tournament score in status.detail / status.todayDetail
+    like '+1(15)' or 'E(14)'. Extract the score portion and parse it as relative-to-par.
+    """
+    if not isinstance(status_obj, dict):
+        return None
+    for k in ("detail", "todayDetail"):
+        v = status_obj.get(k)
+        if not isinstance(v, str) or not v.strip():
+            continue
+        m = _DETAIL_SCORE_RE.match(v.strip())
+        if not m:
+            continue
+        s = m.group("score").upper()
+        rel, _st, _cut = parse_total_score(s)
+        if rel is not None:
+            return rel
+    return None
+
+
 def today_score_from_linescores(linescores: Any) -> Optional[int]:
     """Latest round's rel-to-par: highest period with a parseable displayValue on linescores."""
     if not isinstance(linescores, list):
@@ -445,6 +470,11 @@ def competitor_to_update(row: Dict[str, Any]) -> Optional[GolferUpdate]:
             status_text = t.get("name") or t.get("description") or status_obj.get("detail")
         else:
             status_text = status_obj.get("detail") or status_obj.get("description")
+
+    # Prefer the live score shown in ESPN status.detail/todayDetail (e.g. '+1(15)') when available.
+    total_from_detail = total_score_from_status_detail(status_obj)
+    if total_from_detail is not None:
+        total_score = total_from_detail
 
     if score_status:
         status_text = score_status
