@@ -185,6 +185,7 @@ export function LeaderboardClient({
   const router = useRouter();
   const [rows, setRows] = useState<LeaderRow[]>([]);
   const [tournament, setTournament] = useState<Tournament | null>(null);
+  const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isAuthed, setIsAuthed] = useState<boolean>(false);
@@ -213,6 +214,13 @@ export function LeaderboardClient({
       return;
     }
     setTournament(t);
+
+    const { data: healthRow } = await supabase
+      .from("sync_health")
+      .select("last_success_at")
+      .eq("tournament_id", tournamentId)
+      .maybeSingle();
+    setLastSyncAt(healthRow?.last_success_at ?? null);
 
     // Picks visibility is controlled by RLS (others hidden until Locked).
     const { data: picks, error: picksErr } = await supabase
@@ -365,6 +373,16 @@ export function LeaderboardClient({
               <>Tournament: {tournamentId}</>
             )}
           </p>
+          {tournament?.status === "Live" && lastSyncAt ? (
+            (() => {
+              const last = new Date(lastSyncAt).getTime();
+              const ageMin = Math.round((Date.now() - last) / 60000);
+              if (Number.isFinite(ageMin) && ageMin > 20) {
+                return <p className="text-xs text-amber-700">Live scores may be stale (last sync ~{ageMin}m ago).</p>;
+              }
+              return null;
+            })()
+          ) : null}
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:gap-3">
           {tournamentChoices && tournamentChoices.length > 0 ? (

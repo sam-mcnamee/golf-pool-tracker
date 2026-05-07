@@ -8,6 +8,7 @@ import os
 import re
 import sys
 import time
+import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -33,6 +34,25 @@ def must_env(name: str) -> str:
     if not v:
         raise RuntimeError(f"Missing env var: {name}")
     return v
+
+
+def normalize_name(s: str) -> str:
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(c for c in s if not unicodedata.combining(c))
+    for old, new in (
+        ("ø", "o"),
+        ("Ø", "o"),
+        ("æ", "ae"),
+        ("Æ", "ae"),
+        ("å", "a"),
+        ("Å", "a"),
+        ("ö", "o"),
+        ("Ö", "o"),
+        ("ü", "u"),
+        ("Ü", "u"),
+    ):
+        s = s.replace(old, new)
+    return re.sub(r"[^a-z]+", " ", s.lower()).strip()
 
 
 def espn_get_json(event_id: str, *, timeout_s: int = 20, retries: int = 3) -> Dict[str, Any]:
@@ -578,6 +598,55 @@ def competitor_to_update(row: Dict[str, Any]) -> Optional[GolferUpdate]:
     )
 
 
+def build_sync_health_payload(
+    *,
+    tournament_id: str,
+    espn_event_id: str,
+    tournament_status: Optional[str],
+    updates: List[GolferUpdate],
+    total_from_detail_count: int,
+    total_from_fallback_count: int,
+    last_error: Optional[str],
+    anomalies: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    now_iso = datetime.now(ZoneInfo("UTC")).isoformat()
+    in_progress = [u for u in updates if u.current_round is not None]
+    in_prog_total = len(in_progress)
+    null_total_in_prog = sum(1 for u in in_progress if u.total_score is None)
+    null_thru_in_prog = sum(1 for u in in_progress if not (u.thru and str(u.thru).strip()))
+
+    health = {
+        "tournament_id": tournament_id,
+        "espn_event_id": espn_event_id,
+        "last_run_at": now_iso,
+        "last_error": last_error,
+        "golfers_updated_count": len(updates),
+        "total_from_detail_count": int(total_from_detail_count),
+        "total_from_fallback_count": int(total_from_fallback_count),
+        "anomalies": anomalies,
+    }
+
+    is_live = tournament_status == "Live"
+    # Record last_success_at only when the run had no error and validations pass.
+    hard_fail = False
+    if is_live and in_prog_total > 0:
+        frac_null_total = null_total_in_prog / max(1, in_prog_total)
+        frac_null_thru = null_thru_in_prog / max(1, in_prog_total)
+        if frac_null_total > 0.2:
+            anomalies.append(
+                {"type": "too_many_null_totals_in_progress", "count": null_total_in_prog, "total": in_prog_total}
+            )
+            hard_fail = True
+        if frac_null_thru > 0.5:
+            anomalies.append({"type": "too_many_null_thru_in_progress", "count": null_thru_in_prog, "total": in_prog_total})
+            # Not a hard fail—some events may omit thru for some players.
+
+    if last_error is None and not hard_fail:
+        health["last_success_at"] = now_iso
+
+    return health
+
+
 def detect_event_status(payload: Dict[str, Any]) -> Tuple[Optional[str], bool]:
     """
     Returns (tournament_status, is_final)
@@ -649,9 +718,17 @@ def main() -> int:
     competitors = extract_competitors(payload)
 
     updates: List[GolferUpdate] = []
+    used_detail = 0
+    used_score_display = 0
     for row in competitors:
         if not isinstance(row, dict):
             continue
+        status_obj = row.get("status")
+        total_from_detail = total_score_from_status_detail(status_obj)
+        if total_from_detail is not None:
+            used_detail += 1
+        else:
+            used_score_display += 1
         u = competitor_to_update(row)
         if u is not None:
             updates.append(u)
@@ -690,6 +767,8 @@ def main() -> int:
         print(json.dumps({"tournament_id": tournament_id, "espn_event_id": espn_event_id, "count": len(updates)}))
         return 0
 
+    anomalies: List[Dict[str, Any]] = []
+
     # Upsert golfers into tournament.
     golfer_rows = []
     for u in updates:
@@ -724,6 +803,66 @@ def main() -> int:
         r = requests.post(url, headers=headers, json=golfer_rows, timeout=30)
         r.raise_for_status()
 
+    # Self-heal: relink golfer_tiers to authoritative golfer rows (by normalized name).
+    relinked = 0
+    if sb is not None:
+        try:
+            # Build authoritative golfer id per normalized name (prefer rows with score/thru/recent updated_at).
+            gq = (
+                sb.table("golfers")
+                .select("id,name,total_score,today_score,current_round,thru,updated_at")
+                .eq("tournament_id", tournament_id)
+                .execute()
+            )
+            golfers = list(gq.data or [])
+
+            def authority_key(g: Dict[str, Any]) -> Tuple[int, int, float]:
+                has_score = 1 if any(g.get(k) is not None for k in ("total_score", "today_score", "current_round")) else 0
+                has_thru = 1 if isinstance(g.get("thru"), str) and g.get("thru").strip() else 0
+                upd = g.get("updated_at") or ""
+                try:
+                    ts = datetime.fromisoformat(str(upd).replace("Z", "+00:00")).timestamp()
+                except Exception:
+                    ts = 0.0
+                return (has_score, has_thru, ts)
+
+            by_norm: Dict[str, List[Dict[str, Any]]] = {}
+            for g in golfers:
+                key = normalize_name(str(g.get("name") or ""))
+                if key:
+                    by_norm.setdefault(key, []).append(g)
+
+            authoritative_by_norm: Dict[str, str] = {}
+            for k, group in by_norm.items():
+                best = max(group, key=authority_key)
+                authoritative_by_norm[k] = str(best["id"])
+
+            tq = (
+                sb.table("golfer_tiers")
+                .select("id,golfer_id,golfers:golfer_id(id,name)")
+                .eq("tournament_id", tournament_id)
+                .execute()
+            )
+            tiers = list(tq.data or [])
+            patches: List[Dict[str, Any]] = []
+            for tr in tiers:
+                g0 = tr.get("golfers")
+                if not isinstance(g0, dict):
+                    continue
+                name = str(g0.get("name") or "")
+                norm = normalize_name(name)
+                want = authoritative_by_norm.get(norm)
+                have = tr.get("golfer_id")
+                if want and have and str(have) != want:
+                    patches.append({"id": tr["id"], "golfer_id": want})
+
+            if patches:
+                sb.table("golfer_tiers").upsert(patches, on_conflict="id").execute()
+                relinked = len(patches)
+                anomalies.append({"type": "auto_relinked_golfer_tiers", "count": relinked})
+        except Exception as e:  # noqa: BLE001
+            anomalies.append({"type": "auto_relink_failed", "error": str(e)[:240]})
+
     # Update tournament flags.
     t_patch: Dict[str, Any] = {}
     if tournament_status in ("Live", "Complete"):
@@ -743,7 +882,39 @@ def main() -> int:
             r = requests.patch(url, headers=headers, json=t_patch, timeout=30)
             r.raise_for_status()
 
+    # Update sync_health (best-effort; does not block syncing unless validations fail hard below).
+    last_error: Optional[str] = None
+    health = build_sync_health_payload(
+        tournament_id=str(tournament_id),
+        espn_event_id=str(espn_event_id),
+        tournament_status=tournament_status,
+        updates=updates,
+        total_from_detail_count=used_detail,
+        total_from_fallback_count=used_score_display,
+        last_error=last_error,
+        anomalies=anomalies,
+    )
+    hard_fail = any(a.get("type") == "too_many_null_totals_in_progress" for a in (health.get("anomalies") or []))
+    try:
+        if sb is not None:
+            sb.table("sync_health").upsert(health, on_conflict="tournament_id").execute()
+        else:
+            headers = {
+                "apikey": service_key,
+                "Authorization": f"Bearer {service_key}",
+                "Content-Type": "application/json",
+                "Prefer": "resolution=merge-duplicates,return=minimal",
+            }
+            url = f"{supabase_url}/rest/v1/sync_health?on_conflict=tournament_id"
+            r = requests.post(url, headers=headers, json=[health], timeout=30)
+            r.raise_for_status()
+    except Exception as e:  # noqa: BLE001
+        print(f"WARNING: Failed to write sync_health: {e}", file=sys.stderr)
+
     print(f"Synced {len(updates)} golfers for tournament_id={tournament_id}")
+    if hard_fail:
+        print("ERROR: Sync validations failed (see sync_health.anomalies)", file=sys.stderr)
+        return 3
     return 0
 
 
