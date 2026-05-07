@@ -483,9 +483,16 @@ def competitor_to_update(row: Dict[str, Any]) -> Optional[GolferUpdate]:
 
     today_rel = today_score_from_linescores(linescores)
 
-    thru = row.get("thru") or row.get("displayThru") or row.get("through")
-    if not isinstance(thru, str):
-        thru = None
+    # ESPN leaderboard payload stores progress in row["status"] (not top-level).
+    thru: Optional[str] = None
+    if isinstance(status_obj, dict):
+        thru_raw = status_obj.get("displayThru") if isinstance(status_obj.get("displayThru"), (str, int, float)) else status_obj.get("thru")
+        if isinstance(thru_raw, (int, float)):
+            thru = str(int(thru_raw))
+        elif isinstance(thru_raw, str):
+            thru = thru_raw
+    if thru is not None:
+        thru = str(thru).strip() or None
 
     # Determine current round for "IP" display.
     # Prefer explicit round fields if present; otherwise fall back to thru + linescores.
@@ -495,6 +502,9 @@ def competitor_to_update(row: Dict[str, Any]) -> Optional[GolferUpdate]:
             explicit_round = _parse_int_round(row.get(k))
             if explicit_round is not None:
                 break
+    if explicit_round is None and isinstance(status_obj, dict):
+        # ESPN commonly provides the current round as status.period (1..4)
+        explicit_round = _parse_int_round(status_obj.get("period"))
 
     if explicit_round is not None:
         current_round_ip = explicit_round
