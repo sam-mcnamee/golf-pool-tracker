@@ -288,8 +288,9 @@ def parse_total_score(score_str: Optional[str]) -> Tuple[Optional[int], Optional
     - "+2" => 2
     - "-13" => -13
     - "CUT" => status="CUT", is_cut=False, total_score=None
+    - "MC"  => status="CUT", is_cut=False, total_score=None
     - "WD"/"DQ" => status="WD"/"DQ", is_cut=False, total_score=None
-    - "--" / None => total_score=None
+    - "-" / "--" / None => no score yet (total_score=None, status=None, is_cut=None)
     """
     if score_str is None:
         return (None, None, None)
@@ -297,8 +298,10 @@ def parse_total_score(score_str: Optional[str]) -> Tuple[Optional[int], Optional
     s = score_str.strip().upper()
     if s in ("", "--"):
         return (None, None, None)
-    if s in ("-", "MC"):
-        # Some feeds use "-" or "MC" markers; treat as missed cut/disqualified from scoring.
+    if s in ("-",):
+        # ESPN often uses "-" early in rounds / before teeing off. This is not a cut.
+        return (None, None, None)
+    if s in ("MC",):
         return (None, "CUT", False)
     if s == "E":
         return (0, None, None)
@@ -441,9 +444,11 @@ def competitor_to_update(row: Dict[str, Any]) -> Optional[GolferUpdate]:
     if is_cut is None and isinstance(linescores, list) and len(linescores) >= 3:
         is_cut = True
 
-    # "CUT" marker sometimes appears in status detail.
-    if is_cut is None and status_text and "CUT" in status_text.upper():
-        is_cut = False
+    # Missed cut / withdrawn / disqualified are explicit "out" statuses.
+    if is_cut is None and status_text:
+        st = status_text.strip().upper()
+        if st in ("CUT", "WD", "DQ"):
+            is_cut = False
 
     today_rel = today_score_from_linescores(linescores)
 
@@ -550,8 +555,14 @@ def main() -> int:
 
     tournament_status, _is_final = detect_event_status(payload)
 
-    # Heuristic: if there are any explicit missed-cut markers, assume cut has happened.
-    cut_complete = any((u.is_cut is False and (u.status or "") == "CUT") for u in updates)
+    # Heuristic: only call the cut "complete" once we have evidence weekend play has begun.
+    # This prevents early/placeholder markers from incorrectly locking the tournament into post-cut mode.
+    any_weekend_started = any(
+        (u.current_round is not None and u.current_round >= 3) or (u.r3_score is not None) or (u.r4_score is not None)
+        for u in updates
+    )
+    any_explicit_cut = any(((u.status or "").strip().upper() == "CUT") and (u.is_cut is False) for u in updates)
+    cut_complete = any_weekend_started and any_explicit_cut
 
     if args.dry_run:
         print(json.dumps({"tournament_id": tournament_id, "espn_event_id": espn_event_id, "count": len(updates)}))
