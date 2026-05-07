@@ -805,6 +805,7 @@ def main() -> int:
 
     # Self-heal: relink golfer_tiers to authoritative golfer rows (by normalized name).
     relinked = 0
+    odds_relinked = 0
     if sb is not None:
         try:
             # Build authoritative golfer id per normalized name (prefer rows with score/thru/recent updated_at).
@@ -860,6 +861,27 @@ def main() -> int:
                 sb.table("golfer_tiers").upsert(patches, on_conflict="id").execute()
                 relinked = len(patches)
                 anomalies.append({"type": "auto_relinked_golfer_tiers", "count": relinked})
+
+            # Keep odds rows consistent too (helps freeze tiers / admin views).
+            oq = (
+                sb.table("tournament_odds_latest")
+                .select("id,golfer_id,golfer_name")
+                .eq("tournament_id", tournament_id)
+                .execute()
+            )
+            odds_rows = list(oq.data or [])
+            odds_patches: List[Dict[str, Any]] = []
+            for o in odds_rows:
+                name = str(o.get("golfer_name") or "")
+                norm = normalize_name(name)
+                want = authoritative_by_norm.get(norm)
+                have = o.get("golfer_id")
+                if want and have and str(have) != want:
+                    odds_patches.append({"id": o["id"], "golfer_id": want})
+            if odds_patches:
+                sb.table("tournament_odds_latest").upsert(odds_patches, on_conflict="id").execute()
+                odds_relinked = len(odds_patches)
+                anomalies.append({"type": "auto_relinked_tournament_odds_latest", "count": odds_relinked})
         except Exception as e:  # noqa: BLE001
             anomalies.append({"type": "auto_relink_failed", "error": str(e)[:240]})
 
