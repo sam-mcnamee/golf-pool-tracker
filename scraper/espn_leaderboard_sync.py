@@ -351,6 +351,48 @@ def today_score_from_linescores(linescores: Any) -> Optional[int]:
     return out
 
 
+def _parse_int_round(obj: Any) -> Optional[int]:
+    if isinstance(obj, int):
+        return obj if 1 <= obj <= 4 else None
+    if isinstance(obj, str):
+        s = obj.strip()
+        if s.isdigit():
+            i = int(s)
+            return i if 1 <= i <= 4 else None
+    return None
+
+
+def _thru_state(thru: Optional[str]) -> str:
+    """
+    Coarse state derived from ESPN's `thru` field.
+    Returns: "not_started" | "in_progress" | "finished" | "unknown"
+    """
+    if not thru:
+        return "unknown"
+    t = thru.strip().upper()
+    if not t:
+        return "unknown"
+
+    # Finished markers.
+    if t in ("F", "FIN", "FINAL"):
+        return "finished"
+    if t.startswith("F"):
+        # "F", "F1", etc.
+        return "finished"
+
+    # Hole number => in progress.
+    if t.isdigit():
+        n = int(t)
+        if 1 <= n <= 18:
+            return "in_progress"
+
+    # Tee time patterns like "1:35 PM" or "08:10AM".
+    if ":" in t and ("AM" in t or "PM" in t):
+        return "not_started"
+
+    return "unknown"
+
+
 @dataclass(frozen=True)
 class GolferUpdate:
     espn_athlete_id: str
@@ -410,6 +452,7 @@ def competitor_to_update(row: Dict[str, Any]) -> Optional[GolferUpdate]:
         is_cut = score_is_cut
 
     linescores = row.get("linescores")
+    # Round scores should be relative-to-par (same units as total_score).
     round_scores: Dict[int, int] = {}
     current_round_ip: Optional[int] = None
     if isinstance(linescores, list):
@@ -422,23 +465,11 @@ def competitor_to_update(row: Dict[str, Any]) -> Optional[GolferUpdate]:
             if period_raw < 1 or period_raw > 4:
                 continue
 
-            in_sc = ls.get("inScore")
-            out_sc = ls.get("outScore")
-            both_halves = isinstance(in_sc, (int, float)) and isinstance(out_sc, (int, float))
-            value = ls.get("value")
-
-            if both_halves:
-                if isinstance(value, (int, float)):
-                    round_scores[period_raw] = int(value)
-                else:
-                    try:
-                        round_scores[period_raw] = int(in_sc) + int(out_sc)
-                    except (TypeError, ValueError):
-                        if period_raw >= (current_round_ip or 0):
-                            current_round_ip = period_raw
-            else:
-                if period_raw >= (current_round_ip or 0):
-                    current_round_ip = period_raw
+            display = ls.get("displayValue")
+            if isinstance(display, str) and display.strip():
+                rel, _st, _cut = parse_total_score(display)
+                if rel is not None:
+                    round_scores[period_raw] = rel
 
     # Weekend rounds implies made cut.
     if is_cut is None and isinstance(linescores, list) and len(linescores) >= 3:
@@ -455,6 +486,41 @@ def competitor_to_update(row: Dict[str, Any]) -> Optional[GolferUpdate]:
     thru = row.get("thru") or row.get("displayThru") or row.get("through")
     if not isinstance(thru, str):
         thru = None
+
+    # Determine current round for "IP" display.
+    # Prefer explicit round fields if present; otherwise fall back to thru + linescores.
+    explicit_round = None
+    for k in ("currentRound", "current_round", "round"):
+        if k in row:
+            explicit_round = _parse_int_round(row.get(k))
+            if explicit_round is not None:
+                break
+
+    if explicit_round is not None:
+        current_round_ip = explicit_round
+    else:
+        state = _thru_state(thru)
+        if state == "in_progress":
+            # Latest period with parseable displayValue; default to R1 if none.
+            best_period = 0
+            if isinstance(linescores, list):
+                for ls in linescores:
+                    if not isinstance(ls, dict):
+                        continue
+                    period = ls.get("period")
+                    if not isinstance(period, int) or period < 1 or period > 4:
+                        continue
+                    dv = ls.get("displayValue")
+                    if not isinstance(dv, str) or not dv.strip():
+                        continue
+                    rel, _st, _cut = parse_total_score(dv)
+                    if rel is None:
+                        continue
+                    best_period = max(best_period, period)
+            current_round_ip = best_period or 1
+        else:
+            # Not started / finished / unknown => don't mark IP.
+            current_round_ip = None
 
     return GolferUpdate(
         espn_athlete_id=str(athlete_id),
@@ -552,6 +618,22 @@ def main() -> int:
 
     if not updates:
         raise RuntimeError("No golfers parsed from ESPN payload")
+
+    if os.getenv("ESPN_SYNC_DEBUG", "").strip():
+        focus = {"XANDER SCHAUFFELE", "SAHITH THEEGALA", "TONY FINAU", "AKSHAY BHATIA"}
+        print("DEBUG: sample parsed golfer rows (name total today round thru status is_cut r1 r2 r3 r4)")
+        shown = 0
+        for u in updates:
+            n = (u.name or "").strip().upper()
+            if n in focus or shown < 10:
+                print(
+                    f"DEBUG: {u.name} total={u.total_score} today={u.today_score} "
+                    f"round={u.current_round} thru={u.thru} status={u.status} is_cut={u.is_cut} "
+                    f"r1={u.r1_score} r2={u.r2_score} r3={u.r3_score} r4={u.r4_score}"
+                )
+                shown += 1
+            if shown >= 25:
+                break
 
     tournament_status, _is_final = detect_event_status(payload)
 
