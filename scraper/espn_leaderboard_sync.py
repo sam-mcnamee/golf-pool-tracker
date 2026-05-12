@@ -867,7 +867,10 @@ def sync_leaderboard_once(
                     patches.append({"id": tr["id"], "golfer_id": want})
 
             if patches:
-                sb.table("golfer_tiers").upsert(patches, on_conflict="id").execute()
+                # Per-row updates: upsert with a partial payload would try to INSERT first
+                # and fail on NOT NULL columns like tournament_id.
+                for p in patches:
+                    sb.table("golfer_tiers").update({"golfer_id": p["golfer_id"]}).eq("id", p["id"]).execute()
                 relinked = len(patches)
                 anomalies.append({"type": "auto_relinked_golfer_tiers", "count": relinked})
 
@@ -892,7 +895,9 @@ def sync_leaderboard_once(
                 if have is None or str(have) != want:
                     odds_patches.append({"id": o["id"], "golfer_id": want})
             if odds_patches:
-                sb.table("tournament_odds_latest").upsert(odds_patches, on_conflict="id").execute()
+                # Per-row updates (see comment above on golfer_tiers).
+                for p in odds_patches:
+                    sb.table("tournament_odds_latest").update({"golfer_id": p["golfer_id"]}).eq("id", p["id"]).execute()
                 odds_relinked = len(odds_patches)
                 anomalies.append({"type": "auto_relinked_tournament_odds_latest", "count": odds_relinked})
         except Exception as e:  # noqa: BLE001
