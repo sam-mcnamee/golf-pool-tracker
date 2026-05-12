@@ -859,8 +859,11 @@ def sync_leaderboard_once(
                 name = str(g0.get("name") or "")
                 norm = normalize_name(name)
                 want = authoritative_by_norm.get(norm)
+                if not want:
+                    continue
                 have = tr.get("golfer_id")
-                if want and have and str(have) != want:
+                # Fill null golfer_ids and fix wrong ones.
+                if have is None or str(have) != want:
                     patches.append({"id": tr["id"], "golfer_id": want})
 
             if patches:
@@ -881,8 +884,12 @@ def sync_leaderboard_once(
                 name = str(o.get("golfer_name") or "")
                 norm = normalize_name(name)
                 want = authoritative_by_norm.get(norm)
+                if not want:
+                    continue
                 have = o.get("golfer_id")
-                if want and have and str(have) != want:
+                # Fill null golfer_ids and fix wrong ones (covers the common case where odds
+                # are scraped before ESPN publishes the field).
+                if have is None or str(have) != want:
                     odds_patches.append({"id": o["id"], "golfer_id": want})
             if odds_patches:
                 sb.table("tournament_odds_latest").upsert(odds_patches, on_conflict="id").execute()
