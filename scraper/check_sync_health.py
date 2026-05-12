@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
 from supabase import Client, create_client
+
+
+_FRAC_RE = re.compile(r"\.(\d+)")
 
 
 def must_env(name: str) -> str:
@@ -21,7 +25,14 @@ def must_env(name: str) -> str:
 def parse_ts(s: Optional[str]) -> Optional[datetime]:
     if not s:
         return None
-    return datetime.fromisoformat(s.replace("Z", "+00:00"))
+    # Python 3.10's datetime.fromisoformat requires fractional seconds to be 3 or 6 digits;
+    # Supabase often returns 4 or 5. Normalize to 6.
+    normalized = s.replace("Z", "+00:00")
+    normalized = _FRAC_RE.sub(lambda m: "." + (m.group(1) + "000000")[:6], normalized)
+    try:
+        return datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
 
 
 def now_utc() -> datetime:
