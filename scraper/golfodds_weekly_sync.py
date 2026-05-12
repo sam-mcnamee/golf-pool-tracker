@@ -362,11 +362,14 @@ def main() -> int:
     golfers = gq.data or []
     golfer_names = [str(g["name"]) for g in golfers]
     if len(golfer_names) < 20:
+        # ESPN often doesn't publish the field until late in tournament week.
+        # Parse golfodds anyway and persist rows with golfer_id=null; the
+        # ESPN-sync auto-relink will match them once the field appears.
         print(
-            f"WARNING: Too few golfers in Supabase for tournament {tournament_name} ({tournament_id}): {len(golfer_names)}. "
-            "Run ESPN field sync before odds sync."
+            f"WARNING: Few/no golfers in Supabase for tournament {tournament_name} "
+            f"({tournament_id}): {len(golfer_names)}. Importing odds unmatched; "
+            "relink will run automatically once ESPN populates the field."
         )
-        return 0
 
     sections = parse_weekly_odds_page(html, golfer_names=golfer_names)
     page_title, odds = pick_best_page_section(tournament_name, sections)

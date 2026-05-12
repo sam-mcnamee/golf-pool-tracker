@@ -455,6 +455,9 @@ class GolferUpdate:
 
 
 def extract_competitors(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Returns the leaderboard rows from ESPN, or an empty list when ESPN
+    hasn't populated the field yet (common pre-tournament). Callers should
+    treat an empty list as "no field available yet" rather than an error."""
     competitors = deep_find_first_list(payload, "competitors")
     if competitors and all(isinstance(x, dict) for x in competitors):
         return competitors  # type: ignore[return-value]
@@ -464,7 +467,7 @@ def extract_competitors(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
     if entries and all(isinstance(x, dict) for x in entries):
         return entries  # type: ignore[return-value]
 
-    raise RuntimeError("Could not find competitors/entries list in ESPN payload")
+    return []
 
 
 def competitor_to_update(row: Dict[str, Any]) -> Optional[GolferUpdate]:
@@ -734,7 +737,17 @@ def main() -> int:
             updates.append(u)
 
     if not updates:
-        raise RuntimeError("No golfers parsed from ESPN payload")
+        # ESPN often does not publish the competitor list until late in the
+        # tournament week (often after first tee times go out). Treat this as
+        # a soft success so the pipeline can continue and pull odds without
+        # field-matching; the auto-relink path below will reconcile once
+        # ESPN populates the field on a later run.
+        print(
+            f"WARNING: ESPN payload has no competitors yet for event {espn_event_id} "
+            f"(tournament_id={tournament_id}); skipping golfer upsert.",
+            file=sys.stderr,
+        )
+        return 0
 
     if os.getenv("ESPN_SYNC_DEBUG", "").strip():
         focus = {"XANDER SCHAUFFELE", "SAHITH THEEGALA", "TONY FINAU", "AKSHAY BHATIA"}
