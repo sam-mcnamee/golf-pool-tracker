@@ -28,19 +28,12 @@ def now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def pick_active_tournament(sb: Client) -> Dict[str, Any]:
-    q = (
-        sb.table("tournaments")
-        .select("id,name,status,cut_complete,created_at")
-        .neq("status", "Complete")
-        .order("created_at", desc=True)
-        .limit(1)
-        .execute()
-    )
+def list_active_tournaments(sb: Client) -> list[Dict[str, Any]]:
+    q = sb.table("tournaments").select("id,name,status,cut_complete,created_at").neq("status", "Complete").execute()
     rows = q.data or []
     if not rows:
         raise RuntimeError("No active (non-Complete) tournament found")
-    return rows[0]
+    return rows
 
 
 def main() -> int:
@@ -53,44 +46,58 @@ def main() -> int:
     service_key = must_env("SUPABASE_SERVICE_ROLE_KEY")
     sb: Client = create_client(supabase_url, service_key)
 
-    t = pick_active_tournament(sb) if not args.tournament_id else (
-        sb.table("tournaments")
-        .select("id,name,status,cut_complete,created_at")
-        .eq("id", args.tournament_id)
-        .limit(1)
-        .execute()
-        .data[0]
-    )
-
-    tid = str(t["id"])
     since = now_utc() - timedelta(minutes=args.minutes)
 
-    # Supabase filter wants ISO string.
-    q = (
-        sb.table("golfers")
-        .select("id,name,updated_at,total_score,today_score,current_round,thru,status,is_cut")
-        .eq("tournament_id", tid)
-        .gte("updated_at", since.isoformat())
-        .order("updated_at", desc=True)
-        .limit(25)
-        .execute()
-    )
-    rows = q.data or []
-
-    print(f"tournament={t.get('name')} id={tid} status={t.get('status')} cut_complete={t.get('cut_complete')}")
-    print(f"since={since.isoformat()} updated_rows={len(rows)} (showing up to 25)")
-    for r in rows:
-        upd = parse_ts(r.get("updated_at"))
-        age = f"{(now_utc() - upd).total_seconds():.0f}s" if upd else "?"
-        print(
-            f"- {r.get('updated_at')} ({age} ago) {r.get('name')} "
-            f"total={r.get('total_score')} today={r.get('today_score')} "
-            f"round={r.get('current_round')} thru={r.get('thru')} status={r.get('status')} is_cut={r.get('is_cut')}"
+    if args.tournament_id:
+        tournaments = (
+            sb.table("tournaments")
+            .select("id,name,status,cut_complete,created_at")
+            .eq("id", args.tournament_id)
+            .limit(1)
+            .execute()
+            .data
+            or []
         )
+        if not tournaments:
+            print(f"ERROR: No tournament with id={args.tournament_id}", file=sys.stderr)
+            return 2
+    else:
+        tournaments = list_active_tournaments(sb)
 
-    # Non-zero exit when nothing has updated recently.
-    if not rows:
-        print("ERROR: No golfers updated recently. Sync may not be running or is failing.", file=sys.stderr)
+    any_updates = False
+    for t in tournaments:
+        tid = str(t["id"])
+        q = (
+            sb.table("golfers")
+            .select("id,name,updated_at,total_score,today_score,current_round,thru,status,is_cut")
+            .eq("tournament_id", tid)
+            .gte("updated_at", since.isoformat())
+            .order("updated_at", desc=True)
+            .limit(25)
+            .execute()
+        )
+        rows = q.data or []
+        print(
+            f"tournament={t.get('name')} id={tid} status={t.get('status')} cut_complete={t.get('cut_complete')} "
+            f"updated_rows={len(rows)}"
+        )
+        if rows:
+            any_updates = True
+            print(f"since={since.isoformat()} (showing up to 25)")
+            for r in rows:
+                upd = parse_ts(r.get("updated_at"))
+                age = f"{(now_utc() - upd).total_seconds():.0f}s" if upd else "?"
+                print(
+                    f"- {r.get('updated_at')} ({age} ago) {r.get('name')} "
+                    f"total={r.get('total_score')} today={r.get('today_score')} "
+                    f"round={r.get('current_round')} thru={r.get('thru')} status={r.get('status')} is_cut={r.get('is_cut')}"
+                )
+
+    if not any_updates:
+        print(
+            "ERROR: No golfers updated recently on any active tournament. Sync may not be running or is failing.",
+            file=sys.stderr,
+        )
         return 2
     return 0
 

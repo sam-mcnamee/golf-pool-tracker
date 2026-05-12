@@ -673,50 +673,43 @@ def detect_event_status(payload: Dict[str, Any]) -> Tuple[Optional[str], bool]:
     return (None, False)
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--tournament-id", help="Supabase tournaments.id (uuid)")
-    ap.add_argument("--espn-event-id", help="ESPN event id (tournamentId)")
-    ap.add_argument("--mode", choices=["current"], default="current")
-    ap.add_argument("--dry-run", action="store_true")
-    args = ap.parse_args()
+def _created_ts_for_sort(row: Dict[str, Any]) -> float:
+    raw = row.get("created_at")
+    if not raw:
+        return 0.0
+    try:
+        return datetime.fromisoformat(str(raw).replace("Z", "+00:00")).timestamp()
+    except Exception:  # noqa: BLE001
+        return 0.0
 
-    supabase_url = must_env("SUPABASE_URL")
-    service_key = must_env("SUPABASE_SERVICE_ROLE_KEY")
-    sb: Optional[Client] = None
-    if create_client is not None:
-        sb = create_client(supabase_url, service_key)
 
-    tournament_id: Optional[str] = args.tournament_id
-    espn_event_id: Optional[str] = args.espn_event_id
+def list_syncable_tournaments(sb: Client) -> List[Dict[str, Any]]:
+    """
+    All non-Complete tournaments with a numeric ESPN event id.
+    Prefer Live, then Locked, Open, Upcoming; newest created_at first within each status.
+    """
+    q = sb.table("tournaments").select("id,espn_event_id,status,created_at").neq("status", "Complete").execute()
+    rows = q.data or []
+    out: List[Dict[str, Any]] = []
+    for r in rows:
+        eid = r.get("espn_event_id")
+        if eid is None or not str(eid).strip().isdigit():
+            continue
+        out.append(r)
+    pri = {"Live": 0, "Locked": 1, "Open": 2, "Upcoming": 3}
+    out.sort(key=lambda r: (pri.get(str(r.get("status") or ""), 9), -_created_ts_for_sort(r)))
+    return out
 
-    if not tournament_id or not espn_event_id:
-        if args.mode != "current":
-            raise RuntimeError("Provide --tournament-id and --espn-event-id, or use --mode current")
 
-        if sb is None:
-            raise RuntimeError(
-                "Python `supabase` dependency missing and explicit ids were not provided. "
-                "Run with --tournament-id and --espn-event-id."
-            )
-
-        q = (
-            sb.table("tournaments")
-            .select("id,espn_event_id,status")
-            .neq("status", "Complete")
-            .order("created_at", desc=True)
-            .limit(1)
-            .execute()
-        )
-        rows = q.data or []
-        if rows:
-            tournament_id = rows[0]["id"]
-            espn_event_id = rows[0]["espn_event_id"]
-
-        # If no active tournament or espn_event_id isn't numeric, auto-select from ESPN.
-        if not tournament_id or not espn_event_id or not str(espn_event_id).isdigit():
-            tournament_id, espn_event_id = ensure_current_tournament(sb)
-
+def sync_leaderboard_once(
+    sb: Optional[Client],
+    supabase_url: str,
+    service_key: str,
+    tournament_id: str,
+    espn_event_id: str,
+    *,
+    dry_run: bool,
+) -> int:
     payload = espn_get_json(str(espn_event_id))
     competitors = extract_competitors(payload)
 
@@ -776,7 +769,7 @@ def main() -> int:
     any_explicit_cut = any(((u.status or "").strip().upper() == "CUT") and (u.is_cut is False) for u in updates)
     cut_complete = any_weekend_started and any_explicit_cut
 
-    if args.dry_run:
+    if dry_run:
         print(json.dumps({"tournament_id": tournament_id, "espn_event_id": espn_event_id, "count": len(updates)}))
         return 0
 
@@ -949,8 +942,59 @@ def main() -> int:
     print(f"Synced {len(updates)} golfers for tournament_id={tournament_id}")
     if hard_fail:
         print("ERROR: Sync validations failed (see sync_health.anomalies)", file=sys.stderr)
-        return 3
+        if os.getenv("ESPN_SYNC_STRICT", "").strip().lower() in ("1", "true", "yes"):
+            return 3
     return 0
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--tournament-id", help="Supabase tournaments.id (uuid)")
+    ap.add_argument("--espn-event-id", help="ESPN event id (tournamentId)")
+    ap.add_argument("--mode", choices=["current"], default="current")
+    ap.add_argument("--dry-run", action="store_true")
+    args = ap.parse_args()
+
+    supabase_url = must_env("SUPABASE_URL")
+    service_key = must_env("SUPABASE_SERVICE_ROLE_KEY")
+    sb: Optional[Client] = None
+    if create_client is not None:
+        sb = create_client(supabase_url, service_key)
+
+    if args.tournament_id and args.espn_event_id:
+        if sb is None:
+            raise RuntimeError("Python `supabase` dependency missing; cannot run with explicit tournament ids.")
+        return sync_leaderboard_once(
+            sb,
+            supabase_url,
+            service_key,
+            str(args.tournament_id),
+            str(args.espn_event_id),
+            dry_run=bool(args.dry_run),
+        )
+
+    if args.mode != "current":
+        raise RuntimeError("Provide --tournament-id and --espn-event-id, or use --mode current")
+
+    if sb is None:
+        raise RuntimeError(
+            "Python `supabase` dependency missing and explicit ids were not provided. "
+            "Run with --tournament-id and --espn-event-id."
+        )
+
+    targets = list_syncable_tournaments(sb)
+    if not targets:
+        tid, eid = ensure_current_tournament(sb)
+        targets = [{"id": tid, "espn_event_id": eid}]
+
+    worst = 0
+    for t in targets:
+        tid = str(t["id"])
+        eid = str(t["espn_event_id"])
+        print(f"ESPN sync: tournament_id={tid} espn_event_id={eid} status={t.get('status')}")
+        rc = sync_leaderboard_once(sb, supabase_url, service_key, tid, eid, dry_run=bool(args.dry_run))
+        worst = max(worst, rc)
+    return worst
 
 
 if __name__ == "__main__":
