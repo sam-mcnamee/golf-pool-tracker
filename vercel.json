@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/cron/sync-leaderboard",
-      "schedule": "*/5 * * * *"
+      "schedule": "0 12 * * *"
     }
   ]
 }
