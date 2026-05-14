@@ -512,6 +512,18 @@ def _thru_state(thru: Optional[str]) -> str:
     return "unknown"
 
 
+def is_actively_scoring(u: GolferUpdate) -> bool:
+    status = (u.status or "").strip().upper()
+    if "IN_PROGRESS" in status or status in ("IN", "INPROGRESS", "LIVE"):
+        return True
+    if u.total_score is not None or u.today_score is not None:
+        return True
+    thru = (u.thru or "").strip()
+    if thru and thru not in ("0", "-", "--"):
+        return True
+    return False
+
+
 @dataclass(frozen=True)
 class GolferUpdate:
     espn_athlete_id: str
@@ -702,7 +714,7 @@ def build_sync_health_payload(
     anomalies: List[Dict[str, Any]],
 ) -> Dict[str, Any]:
     now_iso = datetime.now(ZoneInfo("UTC")).isoformat()
-    in_progress = [u for u in updates if u.current_round is not None]
+    in_progress = [u for u in updates if is_actively_scoring(u)]
     in_prog_total = len(in_progress)
     null_total_in_prog = sum(1 for u in in_progress if u.total_score is None)
     null_thru_in_prog = sum(1 for u in in_progress if not (u.thru and str(u.thru).strip()))
@@ -873,20 +885,24 @@ def sync_leaderboard_once(
 
     anomalies: List[Dict[str, Any]] = []
 
-    existing_tee_by_athlete: Dict[str, Dict[str, Any]] = {}
+    existing_by_athlete: Dict[str, Dict[str, Any]] = {}
     if sb is not None:
-        tee_sel = (
+        existing_sel = (
             sb.table("golfers")
-            .select("espn_athlete_id,r1_tee_at,r2_tee_at,r3_tee_at,r4_tee_at")
+            .select(
+                "espn_athlete_id,r1_tee_at,r2_tee_at,r3_tee_at,r4_tee_at,"
+                "r1_score,r2_score,r3_score,r4_score,total_score,today_score"
+            )
             .eq("tournament_id", tournament_id)
             .execute()
         )
-        for g in tee_sel.data or []:
+        for g in existing_sel.data or []:
             athlete_id = g.get("espn_athlete_id")
             if athlete_id is not None:
-                existing_tee_by_athlete[str(athlete_id)] = g
+                existing_by_athlete[str(athlete_id)] = g
 
     tee_fields = ("r1_tee_at", "r2_tee_at", "r3_tee_at", "r4_tee_at")
+    score_fields = ("r1_score", "r2_score", "r3_score", "r4_score", "total_score", "today_score")
 
     # Upsert golfers into tournament.
     golfer_rows = []
@@ -895,18 +911,18 @@ def sync_leaderboard_once(
             "tournament_id": tournament_id,
             "espn_athlete_id": u.espn_athlete_id,
             "name": u.name,
-            "r1_score": u.r1_score,
-            "r2_score": u.r2_score,
-            "r3_score": u.r3_score,
-            "r4_score": u.r4_score,
-            "total_score": u.total_score,
-            "today_score": u.today_score,
             "current_round": u.current_round,
             "thru": u.thru,
             "status": u.status,
             "is_cut": u.is_cut,
         }
-        prev = existing_tee_by_athlete.get(u.espn_athlete_id, {})
+        prev = existing_by_athlete.get(u.espn_athlete_id, {})
+        for key in score_fields:
+            val = getattr(u, key)
+            if val is None:
+                val = prev.get(key)
+            if val is not None:
+                row[key] = val
         for key in tee_fields:
             val = getattr(u, key)
             if val is None:
