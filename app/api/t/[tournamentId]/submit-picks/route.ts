@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { profileDisplayNameFromUser } from "@/lib/auth/display-name";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const bodySchema = z.object({
@@ -27,10 +28,23 @@ export async function POST(request: Request, { params }: { params: Promise<{ tou
   }
 
   const teamName = parsed.data.teamName.trim();
+  const displayName = profileDisplayNameFromUser(user);
 
-  const { error: profileErr } = await supabase
+  const { data: existingProfile } = await supabase
     .from("profiles")
-    .upsert({ user_id: user.id, team_name: teamName }, { onConflict: "user_id" });
+    .select("display_name")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  const profilePayload: { user_id: string; team_name: string; display_name?: string } = {
+    user_id: user.id,
+    team_name: teamName
+  };
+  if (displayName && !existingProfile?.display_name?.trim()) {
+    profilePayload.display_name = displayName;
+  }
+
+  const { error: profileErr } = await supabase.from("profiles").upsert(profilePayload, { onConflict: "user_id" });
 
   if (profileErr) {
     return NextResponse.json({ error: profileErr.message }, { status: 400 });

@@ -21,3 +21,13 @@ export function displayNameFromOAuthMetadata(
   const t = out.trim();
   return t.length ? t : null;
 }
+
+export function profileDisplayNameFromUser(user: {
+  email?: string | null;
+  user_metadata?: Record<string, unknown> | null;
+  identities?: { identity_data?: Record<string, unknown> }[] | null;
+}): string | null {
+  const identityMeta = user.identities?.find((identity) => identity.identity_data)?.identity_data;
+  const merged: Record<string, unknown> = { ...(identityMeta ?? {}), ...(user.user_metadata ?? {}) };
+  return displayNameFromOAuthMetadata(merged, user.email ?? null);
+}
