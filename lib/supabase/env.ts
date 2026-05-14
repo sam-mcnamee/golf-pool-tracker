@@ -7,7 +7,10 @@ const clientSchema = z.object({
 
 const serverSchema = clientSchema.extend({
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1).optional(),
-  ADMIN_SECRET: z.string().min(12).optional()
+  ADMIN_SECRET: z.string().min(12).optional(),
+  CRON_SECRET: z.string().min(12).optional(),
+  GITHUB_WORKFLOW_TOKEN: z.string().min(1).optional(),
+  GITHUB_REPOSITORY: z.string().min(3).optional()
 });
 
 export function getClientEnv() {
@@ -24,7 +27,10 @@ export function getServerEnv() {
     NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
     NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
     SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
-    ADMIN_SECRET: process.env.ADMIN_SECRET
+    ADMIN_SECRET: process.env.ADMIN_SECRET,
+    CRON_SECRET: process.env.CRON_SECRET,
+    GITHUB_WORKFLOW_TOKEN: process.env.GITHUB_WORKFLOW_TOKEN,
+    GITHUB_REPOSITORY: process.env.GITHUB_REPOSITORY
   });
 }
 
