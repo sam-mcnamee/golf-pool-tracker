@@ -9,6 +9,7 @@ import {
   tiebreakDistanceVsActual,
   type PickedGolfer
 } from "@/lib/domain/scoring";
+import { formatRoundCell, roundCellClassName } from "@/lib/domain/round-display";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -23,6 +24,7 @@ type RowPick = {
               name: string;
               total_score: number | null;
               current_round: number | null;
+              thru: string | null;
               is_cut: boolean | null;
               status: string | null;
               r1_score: number | null;
@@ -34,6 +36,7 @@ type RowPick = {
               name: string;
               total_score: number | null;
               current_round: number | null;
+              thru: string | null;
               is_cut: boolean | null;
               status: string | null;
               r1_score: number | null;
@@ -51,6 +54,7 @@ type RowPick = {
               name: string;
               total_score: number | null;
               current_round: number | null;
+              thru: string | null;
               is_cut: boolean | null;
               status: string | null;
               r1_score: number | null;
@@ -62,6 +66,7 @@ type RowPick = {
               name: string;
               total_score: number | null;
               current_round: number | null;
+              thru: string | null;
               is_cut: boolean | null;
               status: string | null;
               r1_score: number | null;
@@ -93,6 +98,7 @@ type LeaderRow = {
   picks: (PickedGolfer & {
     tier: number;
     current_round: number | null;
+    thru: string | null;
     r1_score: number | null;
     r2_score: number | null;
     r3_score: number | null;
@@ -113,40 +119,6 @@ function formatScore(value: number | null): string {
   if (value === null) return "-";
   if (value > 0) return `+${value}`;
   return String(value);
-}
-
-/** Raw strokes for a round (not vs par). */
-function formatRoundStrokes(value: number | null): string {
-  if (value === null) return "-";
-  return String(value);
-}
-
-type RoundPick = {
-  current_round: number | null;
-  r1_score: number | null;
-  r2_score: number | null;
-  r3_score: number | null;
-  r4_score: number | null;
-  is_cut: boolean | null;
-};
-
-function roundScoreFor(p: RoundPick, round: 1 | 2 | 3 | 4): number | null {
-  return round === 1 ? p.r1_score : round === 2 ? p.r2_score : round === 3 ? p.r3_score : p.r4_score;
-}
-
-/** R3/R4 missed cut → MC; active round (ESPN) → IP; else stroke total or "-". */
-function formatRoundCell(p: RoundPick, round: 1 | 2 | 3 | 4): string {
-  const r = roundScoreFor(p, round);
-  if (round >= 3 && p.is_cut === false && r === null) return "MC";
-  if (p.current_round === round && p.is_cut !== false) return "IP";
-  return formatRoundStrokes(r);
-}
-
-function roundCellClassName(p: RoundPick, round: 1 | 2 | 3 | 4): string {
-  const r = roundScoreFor(p, round);
-  if (round >= 3 && p.is_cut === false && r === null) return "text-red-700 font-semibold tabular-nums";
-  if (p.current_round === round && p.is_cut !== false) return "tabular-nums font-semibold text-slate-500";
-  return "tabular-nums text-slate-800";
 }
 
 /** True if `a` has a strictly better leaderboard position than `b` (lower best4; non-MC ahead of MC). */
@@ -192,6 +164,7 @@ export function LeaderboardClient({
 
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
   const rankLabels = useMemo(() => competitionRankLabels(rows), [rows]);
+  const tournamentStatus = tournament?.status ?? "";
 
   async function load() {
     setLoading(true);
@@ -226,7 +199,7 @@ export function LeaderboardClient({
     const { data: picks, error: picksErr } = await supabase
       .from("picks")
       .select(
-        "user_id,golfer_tiers:golfer_tier_id(tier,odds_text,golfers:golfer_id(name,total_score,current_round,is_cut,status,r1_score,r2_score,r3_score,r4_score))"
+        "user_id,golfer_tiers:golfer_tier_id(tier,odds_text,golfers:golfer_id(name,total_score,current_round,thru,is_cut,status,r1_score,r2_score,r3_score,r4_score))"
       )
       .eq("tournament_id", tournamentId);
 
@@ -279,6 +252,7 @@ export function LeaderboardClient({
             name: string;
             total_score: number | null;
             current_round: number | null;
+            thru: string | null;
             is_cut: boolean | null;
             status: string | null;
             r1_score: number | null;
@@ -292,6 +266,7 @@ export function LeaderboardClient({
           name: g.name,
           total_score: g.total_score,
           current_round: g.current_round,
+          thru: g.thru,
           is_cut: g.is_cut,
           status: g.status,
           r1_score: g.r1_score,
@@ -512,10 +487,10 @@ export function LeaderboardClient({
                       <div className="truncate text-slate-800">
                         T{p.tier} · {p.name}
                       </div>
-                      <div className={`text-right ${roundCellClassName(p, 1)}`}>{formatRoundCell(p, 1)}</div>
-                      <div className={`text-right ${roundCellClassName(p, 2)}`}>{formatRoundCell(p, 2)}</div>
-                      <div className={`text-right ${roundCellClassName(p, 3)}`}>{formatRoundCell(p, 3)}</div>
-                      <div className={`text-right ${roundCellClassName(p, 4)}`}>{formatRoundCell(p, 4)}</div>
+                      <div className={`text-right ${roundCellClassName(p, 1, tournamentStatus)}`}>{formatRoundCell(p, 1, tournamentStatus)}</div>
+                      <div className={`text-right ${roundCellClassName(p, 2, tournamentStatus)}`}>{formatRoundCell(p, 2, tournamentStatus)}</div>
+                      <div className={`text-right ${roundCellClassName(p, 3, tournamentStatus)}`}>{formatRoundCell(p, 3, tournamentStatus)}</div>
+                      <div className={`text-right ${roundCellClassName(p, 4, tournamentStatus)}`}>{formatRoundCell(p, 4, tournamentStatus)}</div>
                       <div className={`text-right tabular-nums font-semibold ${scoreClass(p.total_score)}`}>
                         {formatScore(p.total_score)}
                         {p.is_cut === false ? <span className="ml-2 text-xs text-red-700">CUT</span> : null}
@@ -543,14 +518,14 @@ export function LeaderboardClient({
                         ? "text-slate-700"
                         : scoreClass(p.total_score);
 
-                  const r1Text = formatRoundCell(p, 1);
-                  const r2Text = formatRoundCell(p, 2);
-                  const r3Text = formatRoundCell(p, 3);
-                  const r4Text = formatRoundCell(p, 4);
-                  const r1Class = roundCellClassName(p, 1);
-                  const r2Class = roundCellClassName(p, 2);
-                  const r3Class = roundCellClassName(p, 3);
-                  const r4Class = roundCellClassName(p, 4);
+                  const r1Text = formatRoundCell(p, 1, tournamentStatus);
+                  const r2Text = formatRoundCell(p, 2, tournamentStatus);
+                  const r3Text = formatRoundCell(p, 3, tournamentStatus);
+                  const r4Text = formatRoundCell(p, 4, tournamentStatus);
+                  const r1Class = roundCellClassName(p, 1, tournamentStatus);
+                  const r2Class = roundCellClassName(p, 2, tournamentStatus);
+                  const r3Class = roundCellClassName(p, 3, tournamentStatus);
+                  const r4Class = roundCellClassName(p, 4, tournamentStatus);
 
                   return (
                     <div
