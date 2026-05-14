@@ -117,12 +117,10 @@ def _iter_candidate_time_strings(obj: Any) -> Iterable[str]:
         "teeTime",
         "tee_time",
         "teeTimeUTC",
-        "startDate",
         "startTime",
         "teeOffTime",
         "teetime",
         "teetimeutc",
-        "startdate",
         "starttime",
     }
     if isinstance(obj, dict):
@@ -229,35 +227,51 @@ def ensure_current_tournament(sb: Client) -> Tuple[str, str]:
     end_date = primary.get("endDate") if isinstance(primary.get("endDate"), str) else None
     open_at_et, lock_at_et = compute_open_lock_from_start(start_date)
 
-    first_tee_at_utc: Optional[str] = None
+    first_tee_dt: Optional[datetime] = None
     try:
         first_tee_dt = compute_first_tee_time_utc_from_core(espn_event_id)
-        if first_tee_dt is not None:
-            first_tee_at_utc = first_tee_dt.isoformat()
     except Exception:
-        # Tee times may not be published yet; fall back below.
-        first_tee_at_utc = None
+        # Tee times may not be published yet; keep any existing first_tee_at.
+        first_tee_dt = None
 
-    if first_tee_at_utc is None and start_date:
+    first_tee_at_utc: Optional[str] = first_tee_dt.isoformat() if first_tee_dt is not None else None
+
+    starts_at_utc: Optional[str] = None
+    if first_tee_at_utc is not None:
+        starts_at_utc = first_tee_at_utc
+    elif start_date:
         s = start_date.replace("Z", "+00:00")
-        first_tee_at_utc = datetime.fromisoformat(s).astimezone(ZoneInfo("UTC")).isoformat()
+        starts_at_utc = datetime.fromisoformat(s).astimezone(ZoneInfo("UTC")).isoformat()
 
-    starts_at_utc = first_tee_at_utc
     ends_at_utc: Optional[str] = None
     if end_date:
         e = end_date.replace("Z", "+00:00")
         ends_at_utc = datetime.fromisoformat(e).astimezone(ZoneInfo("UTC")).isoformat()
 
+    existing_sel = sb.table("tournaments").select("first_tee_at").eq("espn_event_id", espn_event_id).limit(1).execute()
+    existing_first_tee_at = (existing_sel.data or [None])[0]
+    existing_first_tee_at = (
+        existing_first_tee_at.get("first_tee_at") if isinstance(existing_first_tee_at, dict) else None
+    )
+
+    upsert_row: Dict[str, Any] = {
+        "name": name,
+        "espn_event_id": espn_event_id,
+        "open_at": open_at_et.astimezone(ZoneInfo("UTC")).isoformat(),
+        "lock_at": lock_at_et.astimezone(ZoneInfo("UTC")).isoformat(),
+        "starts_at": starts_at_utc,
+        "ends_at": ends_at_utc,
+    }
+    if first_tee_at_utc is not None:
+        upsert_row["first_tee_at"] = first_tee_at_utc
+        upsert_row["starts_at"] = first_tee_at_utc
+    elif existing_first_tee_at:
+        upsert_row["first_tee_at"] = existing_first_tee_at
+        if starts_at_utc is None:
+            upsert_row["starts_at"] = existing_first_tee_at
+
     sb.table("tournaments").upsert(
-        {
-            "name": name,
-            "espn_event_id": espn_event_id,
-            "open_at": open_at_et.astimezone(ZoneInfo("UTC")).isoformat(),
-            "lock_at": lock_at_et.astimezone(ZoneInfo("UTC")).isoformat(),
-            "first_tee_at": first_tee_at_utc,
-            "starts_at": starts_at_utc,
-            "ends_at": ends_at_utc,
-        },
+        upsert_row,
         on_conflict="espn_event_id",
     ).execute()
 
