@@ -427,7 +427,7 @@ export function LeaderboardClient({
           <CardTitle className="text-center text-2xl italic tracking-wide text-white">Chodesters</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
-          <div className="grid grid-cols-[minmax(2.5rem,auto)_minmax(0,1fr)_4rem] border-b border-club-gold/30 bg-club-cream/85 px-3 py-2 text-xs font-semibold uppercase text-slate-700">
+          <div className="grid grid-cols-[minmax(2rem,auto)_minmax(0,1fr)_minmax(2.75rem,auto)] border-b border-club-gold/30 bg-club-cream/85 px-3 py-2 text-xs font-semibold uppercase text-slate-700 sm:grid-cols-[minmax(2.5rem,auto)_minmax(0,1fr)_4rem]">
             <div>#</div>
             <div>Team</div>
             <div className="text-right">Overall</div>
@@ -436,11 +436,11 @@ export function LeaderboardClient({
             {rows.map((r, idx) => (
               <div
                 key={`glance-${r.user_id}`}
-                className="grid grid-cols-[minmax(2.5rem,auto)_minmax(0,1fr)_4rem] items-center border-b border-club-gold/20 px-3 py-2 text-sm"
+                className="grid grid-cols-[minmax(2rem,auto)_minmax(0,1fr)_minmax(2.75rem,auto)] items-start border-b border-club-gold/20 px-3 py-2 text-sm sm:grid-cols-[minmax(2.5rem,auto)_minmax(0,1fr)_4rem] sm:items-center"
               >
                 <div className="font-semibold tabular-nums text-slate-700">{rankLabels[idx] ?? String(idx + 1)}</div>
-                <div className="min-w-0 truncate font-medium text-slate-900">{r.teamName}</div>
-                <div className={`text-right tabular-nums font-semibold ${scoreClass(r.best4)}`}>{formatScore(r.best4)}</div>
+                <div className="min-w-0 text-pretty font-medium leading-snug text-slate-900 sm:truncate">{r.teamName}</div>
+                <div className={`self-start pt-0.5 text-right tabular-nums font-semibold sm:self-center sm:pt-0 ${scoreClass(r.best4)}`}>{formatScore(r.best4)}</div>
               </div>
             ))}
           </div>
@@ -454,15 +454,15 @@ export function LeaderboardClient({
       <div className="grid gap-3">
         {rows.map((r, idx) => (
           <Card key={r.user_id} className={r.isMc ? "border-red-300 bg-club-cream/60 opacity-85" : "border-club-gold/30 bg-club-cream/70"}>
-            <CardHeader className="border-b border-club-gold/20 pb-3">
-              <div className="flex items-center justify-between gap-3">
+            <CardHeader className="border-b border-club-gold/20 p-4 pb-3 sm:p-6 sm:pb-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0">
-                  <CardTitle className="truncate text-xl text-club-navy">
+                  <CardTitle className="text-pretty text-xl leading-snug text-club-navy sm:truncate">
                     #{rankLabels[idx] ?? String(idx + 1)} · {r.teamName}
                   </CardTitle>
-                  <div className="truncate text-xs text-slate-700">{r.personName}</div>
+                  <div className="text-pretty text-xs text-slate-700 sm:truncate">{r.personName}</div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex shrink-0 items-center gap-2 self-start sm:self-center">
                   {r.isMc ? <Badge variant="destructive">MC</Badge> : <Badge variant="secondary">Best 4</Badge>}
                   <div
                     className={`rounded-md border border-club-gold/40 bg-white px-3 py-1 text-base font-semibold tabular-nums ${scoreClass(
@@ -478,7 +478,7 @@ export function LeaderboardClient({
                 {r.tieDelta !== null ? <> · Tiebreak Δ: {r.tieDelta}</> : null}
               </CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
               <div className="hidden md:block">
                 <div className="grid grid-cols-[3rem_minmax(9rem,1fr)_3rem_3rem_3rem_3rem_4rem] gap-1 text-xs font-medium text-slate-600">
                   <div>Cut?</div>
@@ -564,19 +564,19 @@ export function LeaderboardClient({
                       <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
                         <div className="flex items-center justify-between rounded bg-white/50 px-2 py-1">
                           <span className="text-[10px] font-medium uppercase tracking-wide text-slate-500">R1</span>
-                          <span className={r1Class}>{r1Text}</span>
+                          <span className={`shrink-0 text-right ${r1Class}`}>{r1Text}</span>
                         </div>
                         <div className="flex items-center justify-between rounded bg-white/50 px-2 py-1">
                           <span className="text-[10px] font-medium uppercase tracking-wide text-slate-500">R2</span>
-                          <span className={r2Class}>{r2Text}</span>
+                          <span className={`shrink-0 text-right ${r2Class}`}>{r2Text}</span>
                         </div>
                         <div className="flex items-center justify-between rounded bg-white/50 px-2 py-1">
                           <span className="text-[10px] font-medium uppercase tracking-wide text-slate-500">R3</span>
-                          <span className={r3Class}>{r3Text}</span>
+                          <span className={`shrink-0 text-right ${r3Class}`}>{r3Text}</span>
                         </div>
                         <div className="flex items-center justify-between rounded bg-white/50 px-2 py-1">
                           <span className="text-[10px] font-medium uppercase tracking-wide text-slate-500">R4</span>
-                          <span className={r4Class}>{r4Text}</span>
+                          <span className={`shrink-0 text-right ${r4Class}`}>{r4Text}</span>
                         </div>
                       </div>
                     </div>

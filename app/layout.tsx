@@ -15,7 +15,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body>
         <Header />
-        <main className="container py-8">{children}</main>
+        <main className="container py-6 sm:py-8">{children}</main>
       </body>
     </html>
   );

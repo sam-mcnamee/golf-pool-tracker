@@ -8,6 +8,6 @@ body {
 }
 
 body {
-  @apply bg-white text-slate-900 antialiased;
+  @apply overflow-x-hidden bg-white text-slate-900 antialiased;
 }
 

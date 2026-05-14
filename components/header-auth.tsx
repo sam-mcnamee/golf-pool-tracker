@@ -64,8 +64,11 @@ export function HeaderAuth() {
   }
 
   return (
-    <div className="flex max-w-[min(100vw-6rem,28rem)] shrink-0 flex-wrap items-center justify-end gap-2 sm:gap-3">
-      <span className="truncate text-right text-sm font-medium text-club-navy" title={user.email ?? undefined}>
+    <div className="flex min-w-0 flex-wrap items-center justify-end gap-2 sm:gap-3">
+      <span
+        className="hidden max-w-[9rem] truncate text-right text-sm font-medium text-club-navy sm:inline"
+        title={user.email ?? undefined}
+      >
         {displayName(user)}
       </span>
       {isAdmin ? (
@@ -74,7 +77,12 @@ export function HeaderAuth() {
         </Button>
       ) : null}
       <form action="/auth/signout" method="post">
-        <Button type="submit" variant="secondary" className="border-club-gold/40 bg-white text-club-navy hover:bg-club-cream">
+        <Button
+          type="submit"
+          variant="secondary"
+          size="sm"
+          className="border-club-gold/40 bg-white text-club-navy hover:bg-club-cream"
+        >
           Sign out
         </Button>
       </form>
