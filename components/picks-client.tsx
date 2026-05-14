@@ -22,6 +22,7 @@ import { computeBest4 } from "@/lib/domain/scoring";
 
 const VENMO_HANDLE = "Sam-McNamee";
 const VENMO_AT = "@Sam-McNamee";
+const ENTRY_FEE_USD = 50;
 const VENMO_APP_URL = `venmo://paycharge?txn=pay&recipients=${VENMO_HANDLE}`;
 const VENMO_WEB_URL = `https://venmo.com/${VENMO_HANDLE}`;
 
@@ -419,7 +420,7 @@ export function PicksClient({
           <AlertDialogHeader>
             <AlertDialogTitle>Send entry fee on Venmo</AlertDialogTitle>
             <AlertDialogDescription>
-              Before your picks are saved, send your pool entry to {VENMO_AT}.
+              Before your picks are saved, send your ${ENTRY_FEE_USD} pool entry to {VENMO_AT}.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="flex flex-wrap gap-2">
