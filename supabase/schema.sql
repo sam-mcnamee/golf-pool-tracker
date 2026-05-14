@@ -50,6 +50,10 @@ create table if not exists public.golfers (
   thru text null,
   status text null,
   is_cut boolean null,
+  r1_tee_at timestamptz null,
+  r2_tee_at timestamptz null,
+  r3_tee_at timestamptz null,
+  r4_tee_at timestamptz null,
   updated_at timestamptz not null default now()
 );
 
@@ -59,6 +63,10 @@ alter table public.golfers add column if not exists r3_score integer null;
 alter table public.golfers add column if not exists r4_score integer null;
 alter table public.golfers add column if not exists today_score integer null;
 alter table public.golfers add column if not exists current_round integer null;
+alter table public.golfers add column if not exists r1_tee_at timestamptz null;
+alter table public.golfers add column if not exists r2_tee_at timestamptz null;
+alter table public.golfers add column if not exists r3_tee_at timestamptz null;
+alter table public.golfers add column if not exists r4_tee_at timestamptz null;
 
 create unique index if not exists golfers_tournament_athlete_uidx
   on public.golfers (tournament_id, espn_athlete_id);

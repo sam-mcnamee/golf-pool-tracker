@@ -526,6 +526,10 @@ class GolferUpdate:
     thru: Optional[str]
     status: Optional[str]
     is_cut: Optional[bool]
+    r1_tee_at: Optional[str]
+    r2_tee_at: Optional[str]
+    r3_tee_at: Optional[str]
+    r4_tee_at: Optional[str]
 
 
 def extract_competitors(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -581,6 +585,7 @@ def competitor_to_update(row: Dict[str, Any]) -> Optional[GolferUpdate]:
     linescores = row.get("linescores")
     # Round scores should be relative-to-par (same units as total_score).
     round_scores: Dict[int, int] = {}
+    round_tee_at: Dict[int, str] = {}
     current_round_ip: Optional[int] = None
     if isinstance(linescores, list):
         for ls in linescores:
@@ -591,6 +596,12 @@ def competitor_to_update(row: Dict[str, Any]) -> Optional[GolferUpdate]:
                 continue
             if period_raw < 1 or period_raw > 4:
                 continue
+
+            tee_time = ls.get("teeTime")
+            if isinstance(tee_time, str):
+                tee_dt = _try_parse_iso_datetime(tee_time)
+                if tee_dt is not None:
+                    round_tee_at[period_raw] = tee_dt.astimezone(ZoneInfo("UTC")).isoformat()
 
             display = ls.get("displayValue")
             if isinstance(display, str) and display.strip():
@@ -672,6 +683,10 @@ def competitor_to_update(row: Dict[str, Any]) -> Optional[GolferUpdate]:
         thru=thru,
         status=status_text,
         is_cut=is_cut,
+        r1_tee_at=round_tee_at.get(1),
+        r2_tee_at=round_tee_at.get(2),
+        r3_tee_at=round_tee_at.get(3),
+        r4_tee_at=round_tee_at.get(4),
     )
 
 
@@ -858,6 +873,21 @@ def sync_leaderboard_once(
 
     anomalies: List[Dict[str, Any]] = []
 
+    existing_tee_by_athlete: Dict[str, Dict[str, Any]] = {}
+    if sb is not None:
+        tee_sel = (
+            sb.table("golfers")
+            .select("espn_athlete_id,r1_tee_at,r2_tee_at,r3_tee_at,r4_tee_at")
+            .eq("tournament_id", tournament_id)
+            .execute()
+        )
+        for g in tee_sel.data or []:
+            athlete_id = g.get("espn_athlete_id")
+            if athlete_id is not None:
+                existing_tee_by_athlete[str(athlete_id)] = g
+
+    tee_fields = ("r1_tee_at", "r2_tee_at", "r3_tee_at", "r4_tee_at")
+
     # Upsert golfers into tournament.
     golfer_rows = []
     for u in updates:
@@ -876,6 +906,13 @@ def sync_leaderboard_once(
             "status": u.status,
             "is_cut": u.is_cut,
         }
+        prev = existing_tee_by_athlete.get(u.espn_athlete_id, {})
+        for key in tee_fields:
+            val = getattr(u, key)
+            if val is None:
+                val = prev.get(key)
+            if val is not None:
+                row[key] = val
         golfer_rows.append(row)
 
     if sb is not None:

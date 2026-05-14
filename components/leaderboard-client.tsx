@@ -9,6 +9,7 @@ import {
   tiebreakDistanceVsActual,
   type PickedGolfer
 } from "@/lib/domain/scoring";
+import { formatRoundCell, roundCellClassName } from "@/lib/domain/round-display";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -29,6 +30,10 @@ type RowPick = {
               r2_score: number | null;
               r3_score: number | null;
               r4_score: number | null;
+              r1_tee_at: string | null;
+              r2_tee_at: string | null;
+              r3_tee_at: string | null;
+              r4_tee_at: string | null;
             }
           | {
               name: string;
@@ -40,6 +45,10 @@ type RowPick = {
               r2_score: number | null;
               r3_score: number | null;
               r4_score: number | null;
+              r1_tee_at: string | null;
+              r2_tee_at: string | null;
+              r3_tee_at: string | null;
+              r4_tee_at: string | null;
             }[]
           | null;
       }
@@ -57,6 +66,10 @@ type RowPick = {
               r2_score: number | null;
               r3_score: number | null;
               r4_score: number | null;
+              r1_tee_at: string | null;
+              r2_tee_at: string | null;
+              r3_tee_at: string | null;
+              r4_tee_at: string | null;
             }
           | {
               name: string;
@@ -68,6 +81,10 @@ type RowPick = {
               r2_score: number | null;
               r3_score: number | null;
               r4_score: number | null;
+              r1_tee_at: string | null;
+              r2_tee_at: string | null;
+              r3_tee_at: string | null;
+              r4_tee_at: string | null;
             }[]
           | null;
       }[]
@@ -97,6 +114,10 @@ type LeaderRow = {
     r2_score: number | null;
     r3_score: number | null;
     r4_score: number | null;
+    r1_tee_at: string | null;
+    r2_tee_at: string | null;
+    r3_tee_at: string | null;
+    r4_tee_at: string | null;
   })[];
   predictedRelPar: number | null;
   tieDelta: number | null;
@@ -113,40 +134,6 @@ function formatScore(value: number | null): string {
   if (value === null) return "-";
   if (value > 0) return `+${value}`;
   return String(value);
-}
-
-/** Raw strokes for a round (not vs par). */
-function formatRoundStrokes(value: number | null): string {
-  if (value === null) return "-";
-  return String(value);
-}
-
-type RoundPick = {
-  current_round: number | null;
-  r1_score: number | null;
-  r2_score: number | null;
-  r3_score: number | null;
-  r4_score: number | null;
-  is_cut: boolean | null;
-};
-
-function roundScoreFor(p: RoundPick, round: 1 | 2 | 3 | 4): number | null {
-  return round === 1 ? p.r1_score : round === 2 ? p.r2_score : round === 3 ? p.r3_score : p.r4_score;
-}
-
-/** R3/R4 missed cut → MC; active round (ESPN) → IP; else stroke total or "-". */
-function formatRoundCell(p: RoundPick, round: 1 | 2 | 3 | 4): string {
-  const r = roundScoreFor(p, round);
-  if (round >= 3 && p.is_cut === false && r === null) return "MC";
-  if (p.current_round === round && p.is_cut !== false) return "IP";
-  return formatRoundStrokes(r);
-}
-
-function roundCellClassName(p: RoundPick, round: 1 | 2 | 3 | 4): string {
-  const r = roundScoreFor(p, round);
-  if (round >= 3 && p.is_cut === false && r === null) return "text-red-700 font-semibold tabular-nums";
-  if (p.current_round === round && p.is_cut !== false) return "tabular-nums font-semibold text-slate-500";
-  return "tabular-nums text-slate-800";
 }
 
 /** True if `a` has a strictly better leaderboard position than `b` (lower best4; non-MC ahead of MC). */
@@ -226,7 +213,7 @@ export function LeaderboardClient({
     const { data: picks, error: picksErr } = await supabase
       .from("picks")
       .select(
-        "user_id,golfer_tiers:golfer_tier_id(tier,odds_text,golfers:golfer_id(name,total_score,current_round,is_cut,status,r1_score,r2_score,r3_score,r4_score))"
+        "user_id,golfer_tiers:golfer_tier_id(tier,odds_text,golfers:golfer_id(name,total_score,current_round,is_cut,status,r1_score,r2_score,r3_score,r4_score,r1_tee_at,r2_tee_at,r3_tee_at,r4_tee_at))"
       )
       .eq("tournament_id", tournamentId);
 
@@ -285,6 +272,10 @@ export function LeaderboardClient({
             r2_score: number | null;
             r3_score: number | null;
             r4_score: number | null;
+            r1_tee_at: string | null;
+            r2_tee_at: string | null;
+            r3_tee_at: string | null;
+            r4_tee_at: string | null;
             tier: number;
           } => Boolean(g)
         )
@@ -298,6 +289,10 @@ export function LeaderboardClient({
           r2_score: g.r2_score,
           r3_score: g.r3_score,
           r4_score: g.r4_score,
+          r1_tee_at: g.r1_tee_at,
+          r2_tee_at: g.r2_tee_at,
+          r3_tee_at: g.r3_tee_at,
+          r4_tee_at: g.r4_tee_at,
           tier: g.tier
         }));
 
