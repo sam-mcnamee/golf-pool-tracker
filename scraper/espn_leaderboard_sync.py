@@ -27,6 +27,33 @@ except ModuleNotFoundError:  # pragma: no cover
 ESPN_ENDPOINT = "https://site.api.espn.com/apis/site/v2/sports/golf/leaderboard"
 ESPN_CORE_BASE = "https://sports.core.api.espn.com/v2/sports/golf/leagues/pga"
 ET = ZoneInfo("America/New_York")
+DEBUG_LOG_PATH = "/home/sam/my_new_project/.cursor/debug-0f5852.log"
+
+
+def _agent_debug_log(
+    *,
+    hypothesis_id: str,
+    location: str,
+    message: str,
+    data: Dict[str, Any],
+    run_id: str = "pre-fix",
+) -> None:
+    # #region agent log
+    try:
+        payload = {
+            "sessionId": "0f5852",
+            "hypothesisId": hypothesis_id,
+            "location": location,
+            "message": message,
+            "data": data,
+            "timestamp": int(time.time() * 1000),
+            "runId": run_id,
+        }
+        with open(DEBUG_LOG_PATH, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(payload) + "\n")
+    except Exception:
+        pass
+    # #endregion
 
 
 def must_env(name: str) -> str:
@@ -748,6 +775,23 @@ def build_sync_health_payload(
     if last_error is None and not hard_fail:
         health["last_success_at"] = now_iso
 
+    # #region agent log
+    _agent_debug_log(
+        hypothesis_id="B",
+        location="espn_leaderboard_sync.py:build_sync_health_payload",
+        message="sync health validation",
+        data={
+            "tournamentId": tournament_id,
+            "tournamentStatus": tournament_status,
+            "isLive": is_live,
+            "inProgressTotal": in_prog_total,
+            "nullTotalInProgress": null_total_in_prog,
+            "hardFail": hard_fail,
+            "anomalyTypes": [a.get("type") for a in anomalies],
+        },
+    )
+    # #endregion
+
     return health
 
 
@@ -840,6 +884,14 @@ def sync_leaderboard_once(
             updates.append(u)
 
     if not updates:
+        # #region agent log
+        _agent_debug_log(
+            hypothesis_id="D",
+            location="espn_leaderboard_sync.py:sync_leaderboard_once",
+            message="no competitors in ESPN payload",
+            data={"tournamentId": tournament_id, "espnEventId": espn_event_id},
+        )
+        # #endregion
         # ESPN often does not publish the competitor list until late in the
         # tournament week (often after first tee times go out). Treat this as
         # a soft success so the pipeline can continue and pull odds without
@@ -1071,6 +1123,21 @@ def sync_leaderboard_once(
         anomalies=anomalies,
     )
     hard_fail = any(a.get("type") == "too_many_null_totals_in_progress" for a in (health.get("anomalies") or []))
+    # #region agent log
+    _agent_debug_log(
+        hypothesis_id="E",
+        location="espn_leaderboard_sync.py:sync_leaderboard_once",
+        message="sync completed",
+        data={
+            "tournamentId": tournament_id,
+            "espnEventId": espn_event_id,
+            "golferRows": len(golfer_rows),
+            "withTotalScore": sum(1 for u in updates if u.total_score is not None),
+            "hardFail": hard_fail,
+            "tournamentStatus": tournament_status,
+        },
+    )
+    # #endregion
     try:
         if sb is not None:
             sb.table("sync_health").upsert(health, on_conflict="tournament_id").execute()

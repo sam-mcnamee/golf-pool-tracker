@@ -9,6 +9,8 @@ from typing import Any, Dict, Optional
 
 from supabase import Client, create_client
 
+from espn_leaderboard_sync import list_syncable_tournaments, sync_leaderboard_once
+
 
 def must_env(name: str) -> str:
     v = os.getenv(name)
@@ -70,7 +72,17 @@ def main() -> int:
             updated += 1
 
     print(f"Scheduler updated {updated} tournaments")
-    return 0
+
+    targets = list_syncable_tournaments(sb)
+    sync_rc = 0
+    for t in targets:
+        tid = str(t["id"])
+        eid = str(t["espn_event_id"])
+        print(f"Scheduler sync: tournament_id={tid} espn_event_id={eid} status={t.get('status')}")
+        rc = sync_leaderboard_once(sb, supabase_url, service_key, tid, eid, dry_run=False)
+        sync_rc = max(sync_rc, rc)
+
+    return max(0, sync_rc)
 
 
 if __name__ == "__main__":

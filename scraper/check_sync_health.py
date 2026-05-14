@@ -3,13 +3,43 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
 from supabase import Client, create_client
+
+DEBUG_LOG_PATH = "/home/sam/my_new_project/.cursor/debug-0f5852.log"
+
+
+def _agent_debug_log(
+    *,
+    hypothesis_id: str,
+    location: str,
+    message: str,
+    data: Dict[str, Any],
+    run_id: str = "pre-fix",
+) -> None:
+    # #region agent log
+    try:
+        payload = {
+            "sessionId": "0f5852",
+            "hypothesisId": hypothesis_id,
+            "location": location,
+            "message": message,
+            "data": data,
+            "timestamp": int(time.time() * 1000),
+            "runId": run_id,
+        }
+        with open(DEBUG_LOG_PATH, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(payload) + "\n")
+    except Exception:
+        pass
+    # #endregion
 
 
 _FRAC_RE = re.compile(r"\.(\d+)")
@@ -105,11 +135,27 @@ def main() -> int:
                 )
 
     if not any_updates:
+        # #region agent log
+        _agent_debug_log(
+            hypothesis_id="A",
+            location="check_sync_health.py:main",
+            message="health check failed: no recent golfer updates",
+            data={"minutes": args.minutes, "tournamentCount": len(tournaments)},
+        )
+        # #endregion
         print(
             "ERROR: No golfers updated recently on any active tournament. Sync may not be running or is failing.",
             file=sys.stderr,
         )
         return 2
+    # #region agent log
+    _agent_debug_log(
+        hypothesis_id="A",
+        location="check_sync_health.py:main",
+        message="health check passed",
+        data={"minutes": args.minutes, "tournamentCount": len(tournaments)},
+    )
+    # #endregion
     return 0
 
 
