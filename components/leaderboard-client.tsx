@@ -180,8 +180,10 @@ export function LeaderboardClient({
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
   const rankLabels = useMemo(() => competitionRankLabels(rows), [rows]);
 
-  async function load() {
-    setLoading(true);
+  async function load(options?: { silent?: boolean }) {
+    if (!options?.silent) {
+      setLoading(true);
+    }
     setError(null);
 
     const {
@@ -321,7 +323,9 @@ export function LeaderboardClient({
     });
 
     setRows(computed);
-    setLoading(false);
+    if (!options?.silent) {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -349,6 +353,15 @@ export function LeaderboardClient({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tournamentId]);
+
+  useEffect(() => {
+    if (tournament?.status !== "Live") return;
+    const intervalId = window.setInterval(() => {
+      void load({ silent: true });
+    }, 60_000);
+    return () => window.clearInterval(intervalId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tournament?.status, tournamentId]);
 
   return (
     <div className="space-y-4">

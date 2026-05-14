@@ -3,44 +3,13 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import re
 import sys
-import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
 from supabase import Client, create_client
-
-DEBUG_LOG_PATH = "/home/sam/my_new_project/.cursor/debug-0f5852.log"
-
-
-def _agent_debug_log(
-    *,
-    hypothesis_id: str,
-    location: str,
-    message: str,
-    data: Dict[str, Any],
-    run_id: str = "pre-fix",
-) -> None:
-    # #region agent log
-    try:
-        payload = {
-            "sessionId": "0f5852",
-            "hypothesisId": hypothesis_id,
-            "location": location,
-            "message": message,
-            "data": data,
-            "timestamp": int(time.time() * 1000),
-            "runId": run_id,
-        }
-        with open(DEBUG_LOG_PATH, "a", encoding="utf-8") as fh:
-            fh.write(json.dumps(payload) + "\n")
-    except Exception:
-        pass
-    # #endregion
-
 
 _FRAC_RE = re.compile(r"\.(\d+)")
 
@@ -81,6 +50,12 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="Quick health check for ESPN sync -> Supabase golfers table.")
     ap.add_argument("--tournament-id", help="Supabase tournaments.id (uuid). Defaults to latest non-Complete tournament.")
     ap.add_argument("--minutes", type=int, default=30, help="How far back to look for golfer updates")
+    ap.add_argument(
+        "--stale-minutes",
+        type=int,
+        default=25,
+        help="Fail when a Live tournament's sync_health.last_success_at is older than this",
+    )
     args = ap.parse_args()
 
     supabase_url = must_env("SUPABASE_URL")
@@ -105,9 +80,36 @@ def main() -> int:
     else:
         tournaments = list_active_tournaments(sb)
 
+    stale_live = False
     any_updates = False
     for t in tournaments:
         tid = str(t["id"])
+        if t.get("status") == "Live":
+            sh = (
+                sb.table("sync_health")
+                .select("last_success_at,last_run_at,last_error")
+                .eq("tournament_id", tid)
+                .limit(1)
+                .execute()
+            )
+            health_rows = sh.data or []
+            last_success = parse_ts(health_rows[0].get("last_success_at")) if health_rows else None
+            age_min = (now_utc() - last_success).total_seconds() / 60 if last_success else None
+            if last_success is not None and age_min is not None:
+                print(
+                    f"sync_health tournament={t.get('name')} id={tid} status=Live "
+                    f"last_success_at={health_rows[0].get('last_success_at')} age_min={age_min:.1f}"
+                )
+            else:
+                print(f"sync_health tournament={t.get('name')} id={tid} status=Live last_success_at=None")
+            if last_success is None or age_min > args.stale_minutes:
+                stale_live = True
+                print(
+                    f"ERROR: Live tournament {t.get('name')} has stale sync_health "
+                    f"(last_success_at older than {args.stale_minutes}m).",
+                    file=sys.stderr,
+                )
+
         q = (
             sb.table("golfers")
             .select("id,name,updated_at,total_score,today_score,current_round,thru,status,is_cut")
@@ -134,28 +136,15 @@ def main() -> int:
                     f"round={r.get('current_round')} thru={r.get('thru')} status={r.get('status')} is_cut={r.get('is_cut')}"
                 )
 
+    if stale_live:
+        return 2
+
     if not any_updates:
-        # #region agent log
-        _agent_debug_log(
-            hypothesis_id="A",
-            location="check_sync_health.py:main",
-            message="health check failed: no recent golfer updates",
-            data={"minutes": args.minutes, "tournamentCount": len(tournaments)},
-        )
-        # #endregion
         print(
             "ERROR: No golfers updated recently on any active tournament. Sync may not be running or is failing.",
             file=sys.stderr,
         )
         return 2
-    # #region agent log
-    _agent_debug_log(
-        hypothesis_id="A",
-        location="check_sync_health.py:main",
-        message="health check passed",
-        data={"minutes": args.minutes, "tournamentCount": len(tournaments)},
-    )
-    # #endregion
     return 0
 
 
@@ -165,4 +154,3 @@ if __name__ == "__main__":
     except Exception as e:  # noqa: BLE001
         print(f"ERROR: {e}", file=sys.stderr)
         raise
-

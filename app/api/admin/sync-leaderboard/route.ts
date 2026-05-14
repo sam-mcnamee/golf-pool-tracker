@@ -1,32 +1,24 @@
 import { NextResponse } from "next/server";
 
+import { getServerEnv } from "@/lib/supabase/env";
 import { triggerLeaderboardSync } from "@/lib/sync/leaderboard-sync-trigger";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
 function isAuthorized(request: Request): boolean {
-  const secret = process.env.CRON_SECRET?.trim();
+  const secret = getServerEnv().ADMIN_SECRET?.trim();
   if (!secret) return false;
   const auth = request.headers.get("authorization")?.trim();
   return auth === `Bearer ${secret}`;
 }
 
-export async function GET(request: Request) {
+export async function POST(request: Request) {
   if (!isAuthorized(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const result = await triggerLeaderboardSync("vercel_cron");
-  console.log(
-    JSON.stringify({
-      event: "leaderboard_sync_cron",
-      ok: result.ok,
-      mode: result.mode,
-      detail: result.detail,
-      timestamp: new Date().toISOString()
-    })
-  );
+  const result = await triggerLeaderboardSync("admin_manual");
   const status = result.ok ? 200 : 503;
   return NextResponse.json(result, { status });
 }

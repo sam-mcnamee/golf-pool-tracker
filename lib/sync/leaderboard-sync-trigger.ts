@@ -3,40 +3,19 @@ import path from "node:path";
 
 import { getClientEnv, getServerEnv } from "@/lib/supabase/env";
 
-const DEBUG_INGEST_URL = "http://127.0.0.1:7412/ingest/a35909aa-fcf4-433b-8c2a-136ae1033165";
-const DEBUG_SESSION_ID = "0f5852";
-
 export type LeaderboardSyncTriggerResult = {
   ok: boolean;
   mode: "github_dispatch" | "python" | "skipped";
   detail?: string;
 };
 
-function agentDebugLog(
-  hypothesisId: string,
-  location: string,
-  message: string,
-  data: Record<string, unknown>,
-  runId = "pre-fix"
-) {
-  // #region agent log
-  void fetch(DEBUG_INGEST_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Debug-Session-Id": DEBUG_SESSION_ID
-    },
-    body: JSON.stringify({
-      sessionId: DEBUG_SESSION_ID,
-      hypothesisId,
-      location,
-      message,
-      data,
-      timestamp: Date.now(),
-      runId
-    })
-  }).catch(() => {});
-  // #endregion
+function logSyncEvent(event: string, data: Record<string, unknown>) {
+  const payload = { event, ...data, timestamp: new Date().toISOString() };
+  if (event.endsWith("_failed")) {
+    console.error(JSON.stringify(payload));
+    return;
+  }
+  console.log(JSON.stringify(payload));
 }
 
 export function isSyncStale(lastSuccessAt: string | null | undefined, maxAgeMinutes: number): boolean {
@@ -65,13 +44,9 @@ async function dispatchGithubWorkflow(reason: string): Promise<LeaderboardSyncTr
   });
 
   const ok = response.ok;
-  const detail = ok ? `dispatched (${reason})` : `github ${response.status}`;
-  agentDebugLog("A", "leaderboard-sync-trigger.ts:dispatchGithubWorkflow", "github workflow dispatch", {
-    reason,
-    repo,
-    ok,
-    status: response.status
-  });
+  const responseBody = ok ? "" : (await response.text()).slice(0, 500);
+  const detail = ok ? `dispatched (${reason})` : `github ${response.status}${responseBody ? `: ${responseBody}` : ""}`;
+  logSyncEvent("leaderboard_sync_dispatch", { reason, repo, ok, status: response.status, detail });
   return { ok, mode: "github_dispatch", detail };
 }
 
@@ -106,17 +81,14 @@ async function runPythonSync(reason: string): Promise<LeaderboardSyncTriggerResu
 
     child.on("error", (error) => {
       clearTimeout(timeout);
-      agentDebugLog("B", "leaderboard-sync-trigger.ts:runPythonSync", "python spawn failed", {
-        reason,
-        error: error.message
-      });
+      logSyncEvent("leaderboard_sync_python_failed", { reason, error: error.message });
       resolve({ ok: false, mode: "python", detail: error.message });
     });
 
     child.on("close", (code) => {
       clearTimeout(timeout);
       const ok = code === 0;
-      agentDebugLog("B", "leaderboard-sync-trigger.ts:runPythonSync", "python sync finished", {
+      logSyncEvent(ok ? "leaderboard_sync_python_finished" : "leaderboard_sync_python_failed", {
         reason,
         ok,
         exitCode: code,
@@ -133,22 +105,27 @@ async function runPythonSync(reason: string): Promise<LeaderboardSyncTriggerResu
 }
 
 export async function triggerLeaderboardSync(reason: string): Promise<LeaderboardSyncTriggerResult> {
-  agentDebugLog("A", "leaderboard-sync-trigger.ts:triggerLeaderboardSync", "sync trigger requested", { reason });
+  logSyncEvent("leaderboard_sync_trigger_requested", { reason });
 
   const github = await dispatchGithubWorkflow(reason);
   if (github.ok) return github;
 
-  const python = await runPythonSync(reason);
-  if (python.ok) return python;
+  if (!process.env.VERCEL) {
+    const python = await runPythonSync(reason);
+    if (python.ok) return python;
 
-  agentDebugLog("C", "leaderboard-sync-trigger.ts:triggerLeaderboardSync", "sync trigger unavailable", {
+    const detail = [github.detail, python.detail].filter(Boolean).join("; ");
+    logSyncEvent("leaderboard_sync_trigger_failed", { reason, detail });
+    return { ok: false, mode: "skipped", detail };
+  }
+
+  logSyncEvent("leaderboard_sync_trigger_failed", {
     reason,
-    githubDetail: github.detail,
-    pythonDetail: python.detail
+    detail: github.detail ?? "github dispatch unavailable on Vercel"
   });
   return {
     ok: false,
     mode: "skipped",
-    detail: [github.detail, python.detail].filter(Boolean).join("; ")
+    detail: github.detail ?? "github dispatch unavailable on Vercel"
   };
 }

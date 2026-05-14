@@ -27,33 +27,6 @@ except ModuleNotFoundError:  # pragma: no cover
 ESPN_ENDPOINT = "https://site.api.espn.com/apis/site/v2/sports/golf/leaderboard"
 ESPN_CORE_BASE = "https://sports.core.api.espn.com/v2/sports/golf/leagues/pga"
 ET = ZoneInfo("America/New_York")
-DEBUG_LOG_PATH = "/home/sam/my_new_project/.cursor/debug-0f5852.log"
-
-
-def _agent_debug_log(
-    *,
-    hypothesis_id: str,
-    location: str,
-    message: str,
-    data: Dict[str, Any],
-    run_id: str = "pre-fix",
-) -> None:
-    # #region agent log
-    try:
-        payload = {
-            "sessionId": "0f5852",
-            "hypothesisId": hypothesis_id,
-            "location": location,
-            "message": message,
-            "data": data,
-            "timestamp": int(time.time() * 1000),
-            "runId": run_id,
-        }
-        with open(DEBUG_LOG_PATH, "a", encoding="utf-8") as fh:
-            fh.write(json.dumps(payload) + "\n")
-    except Exception:
-        pass
-    # #endregion
 
 
 def must_env(name: str) -> str:
@@ -775,24 +748,42 @@ def build_sync_health_payload(
     if last_error is None and not hard_fail:
         health["last_success_at"] = now_iso
 
-    # #region agent log
-    _agent_debug_log(
-        hypothesis_id="B",
-        location="espn_leaderboard_sync.py:build_sync_health_payload",
-        message="sync health validation",
-        data={
-            "tournamentId": tournament_id,
-            "tournamentStatus": tournament_status,
-            "isLive": is_live,
-            "inProgressTotal": in_prog_total,
-            "nullTotalInProgress": null_total_in_prog,
-            "hardFail": hard_fail,
-            "anomalyTypes": [a.get("type") for a in anomalies],
-        },
-    )
-    # #endregion
-
     return health
+
+
+def persist_sync_health(
+    sb: Optional[Client],
+    supabase_url: str,
+    service_key: str,
+    health: Dict[str, Any],
+) -> None:
+    if sb is not None and "last_success_at" not in health:
+        existing = (
+            sb.table("sync_health")
+            .select("last_success_at")
+            .eq("tournament_id", health["tournament_id"])
+            .limit(1)
+            .execute()
+        )
+        rows = existing.data or []
+        if rows and rows[0].get("last_success_at"):
+            health["last_success_at"] = rows[0]["last_success_at"]
+
+    try:
+        if sb is not None:
+            sb.table("sync_health").upsert(health, on_conflict="tournament_id").execute()
+        else:
+            headers = {
+                "apikey": service_key,
+                "Authorization": f"Bearer {service_key}",
+                "Content-Type": "application/json",
+                "Prefer": "resolution=merge-duplicates,return=minimal",
+            }
+            url = f"{supabase_url}/rest/v1/sync_health?on_conflict=tournament_id"
+            r = requests.post(url, headers=headers, json=[health], timeout=30)
+            r.raise_for_status()
+    except Exception as e:  # noqa: BLE001
+        print(f"WARNING: Failed to write sync_health: {e}", file=sys.stderr)
 
 
 def detect_event_status(payload: Dict[str, Any]) -> Tuple[Optional[str], bool]:
@@ -884,24 +875,26 @@ def sync_leaderboard_once(
             updates.append(u)
 
     if not updates:
-        # #region agent log
-        _agent_debug_log(
-            hypothesis_id="D",
-            location="espn_leaderboard_sync.py:sync_leaderboard_once",
-            message="no competitors in ESPN payload",
-            data={"tournamentId": tournament_id, "espnEventId": espn_event_id},
+        tournament_status, _is_final = detect_event_status(payload)
+        health = build_sync_health_payload(
+            tournament_id=str(tournament_id),
+            espn_event_id=str(espn_event_id),
+            tournament_status=tournament_status,
+            updates=[],
+            total_from_detail_count=0,
+            total_from_fallback_count=0,
+            last_error=(
+                f"ESPN payload has no competitors yet for event {espn_event_id} "
+                f"(tournament_id={tournament_id}); skipping golfer upsert."
+            ),
+            anomalies=[{"type": "empty_competitors"}],
         )
-        # #endregion
-        # ESPN often does not publish the competitor list until late in the
-        # tournament week (often after first tee times go out). Treat this as
-        # a soft success so the pipeline can continue and pull odds without
-        # field-matching; the auto-relink path below will reconcile once
-        # ESPN populates the field on a later run.
         print(
             f"WARNING: ESPN payload has no competitors yet for event {espn_event_id} "
             f"(tournament_id={tournament_id}); skipping golfer upsert.",
             file=sys.stderr,
         )
+        persist_sync_health(sb, supabase_url, service_key, health)
         return 0
 
     if os.getenv("ESPN_SYNC_DEBUG", "").strip():
@@ -1123,36 +1116,7 @@ def sync_leaderboard_once(
         anomalies=anomalies,
     )
     hard_fail = any(a.get("type") == "too_many_null_totals_in_progress" for a in (health.get("anomalies") or []))
-    # #region agent log
-    _agent_debug_log(
-        hypothesis_id="E",
-        location="espn_leaderboard_sync.py:sync_leaderboard_once",
-        message="sync completed",
-        data={
-            "tournamentId": tournament_id,
-            "espnEventId": espn_event_id,
-            "golferRows": len(golfer_rows),
-            "withTotalScore": sum(1 for u in updates if u.total_score is not None),
-            "hardFail": hard_fail,
-            "tournamentStatus": tournament_status,
-        },
-    )
-    # #endregion
-    try:
-        if sb is not None:
-            sb.table("sync_health").upsert(health, on_conflict="tournament_id").execute()
-        else:
-            headers = {
-                "apikey": service_key,
-                "Authorization": f"Bearer {service_key}",
-                "Content-Type": "application/json",
-                "Prefer": "resolution=merge-duplicates,return=minimal",
-            }
-            url = f"{supabase_url}/rest/v1/sync_health?on_conflict=tournament_id"
-            r = requests.post(url, headers=headers, json=[health], timeout=30)
-            r.raise_for_status()
-    except Exception as e:  # noqa: BLE001
-        print(f"WARNING: Failed to write sync_health: {e}", file=sys.stderr)
+    persist_sync_health(sb, supabase_url, service_key, health)
 
     print(f"Synced {len(updates)} golfers for tournament_id={tournament_id}")
     if hard_fail:
