@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { isPlayerTiersMode } from "@/lib/domain/tournament-status";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -16,6 +17,8 @@ export default async function TournamentPage({ params }: { params: Promise<{ tou
 
   if (!t) notFound();
 
+  const showPlayerTiers = isPlayerTiersMode(t.status);
+
   return (
     <div className="space-y-6">
       <div className="space-y-1">
@@ -26,12 +29,16 @@ export default async function TournamentPage({ params }: { params: Promise<{ tou
       <div className="grid gap-4 sm:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Submit picks</CardTitle>
-            <CardDescription>Pick 1 golfer per tier (7 total).</CardDescription>
+            <CardTitle>{showPlayerTiers ? "Player tiers" : "Submit picks"}</CardTitle>
+            <CardDescription>
+              {showPlayerTiers
+                ? "Live golfer totals by tier after picks lock."
+                : "Pick 1 golfer per tier (7 total)."}
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <Button asChild className="w-full">
-              <Link href={`/t/${t.id}/picks`}>Make picks</Link>
+              <Link href={`/t/${t.id}/picks`}>{showPlayerTiers ? "View player tiers" : "Make picks"}</Link>
             </Button>
           </CardContent>
         </Card>

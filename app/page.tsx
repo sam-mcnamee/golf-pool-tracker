@@ -8,6 +8,7 @@ import {
   type FirstTeamAllChodeCandidate
 } from "@/lib/domain/first-team-all-chode";
 import { sortTournamentsByScheduleDesc } from "@/lib/domain/tournament-sort";
+import { isPlayerTiersMode } from "@/lib/domain/tournament-status";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -74,6 +75,7 @@ export default async function HomePage() {
     ? await supabase.from("odds_snapshots").select("id").eq("tournament_id", t.id).maybeSingle()
     : { data: null as { id: string } | null };
   const hasFrozenTiers = Boolean(snapshot?.id);
+  const showPlayerTiers = t ? isPlayerTiersMode(t.status) : false;
   const statusLabel = t ? (hasFrozenTiers ? "Open" : "Formulating Tiers") : null;
 
   let allChodeSlots: ReturnType<typeof attachHeadshotsToSlots> | null = null;
@@ -128,13 +130,14 @@ export default async function HomePage() {
                       Status: <span className="font-medium text-club-navy">{statusLabel}</span>
                     </div>
                     <p className="text-sm text-slate-600">
-                      &quot;Make Picks&quot; functionality will open Tuesday after player tiers are set. Users will be able to submit and modify
-                      picks until the first tee time on Thursday.
+                      {showPlayerTiers
+                        ? "Player tiers are locked. Follow live golfer totals by tier and compare pool picks to see the best and worst values."
+                        : "\"Make Picks\" functionality will open Tuesday after player tiers are set. Users will be able to submit and modify picks until the first tee time on Thursday."}
                     </p>
                   </div>
                   <div className="flex w-full flex-col gap-2 sm:w-auto sm:min-w-[220px]">
                     <Button asChild className="w-full bg-club-navy text-white hover:bg-club-navy/90">
-                      <Link href={`/t/${t.id}/picks`}>Make picks</Link>
+                      <Link href={`/t/${t.id}/picks`}>{showPlayerTiers ? "Player tiers" : "Make picks"}</Link>
                     </Button>
                     <Button
                       asChild

@@ -9,6 +9,7 @@ import {
   tiebreakDistanceVsActual,
   type PickedGolfer
 } from "@/lib/domain/scoring";
+import { formatScore, scoreClass } from "@/lib/domain/score-display";
 import { isSyncStale } from "@/lib/sync/sync-staleness";
 import { formatRoundCell, roundCellClassName } from "@/lib/domain/round-display";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -123,19 +124,6 @@ type LeaderRow = {
   predictedRelPar: number | null;
   tieDelta: number | null;
 };
-
-function scoreClass(value: number | null): string {
-  if (value === null) return "text-slate-500";
-  if (value < 0) return "text-emerald-700";
-  if (value > 0) return "text-red-700";
-  return "text-slate-700";
-}
-
-function formatScore(value: number | null): string {
-  if (value === null) return "-";
-  if (value > 0) return `+${value}`;
-  return String(value);
-}
 
 /** True if `a` has a strictly better leaderboard position than `b` (lower best4; non-MC ahead of MC). */
 function strictlyBetterScore(a: LeaderRow, b: LeaderRow): boolean {

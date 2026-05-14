@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -19,6 +20,9 @@ import {
 import { cn } from "@/lib/utils";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { computeBest4 } from "@/lib/domain/scoring";
+import { formatGolferTotalScore, formatScore, golferTotalScoreClass } from "@/lib/domain/score-display";
+import { isPlayerTiersMode } from "@/lib/domain/tournament-status";
+import { isSyncStale } from "@/lib/sync/sync-staleness";
 
 const VENMO_HANDLE = "Sam-McNamee";
 const VENMO_AT = "@Sam-McNamee";
@@ -26,32 +30,55 @@ const ENTRY_FEE_USD = 50;
 const VENMO_APP_URL = `venmo://paycharge?txn=pay&recipients=${VENMO_HANDLE}`;
 const VENMO_WEB_URL = `https://venmo.com/${VENMO_HANDLE}`;
 
+const TIER_GOLFER_SELECT =
+  "id,tier,odds_text,golfers:golfer_id(id,name,espn_athlete_id,total_score,is_cut,status)" as const;
+
+type Golfer = {
+  id: string;
+  name: string;
+  espn_athlete_id: string;
+  total_score: number | null;
+  is_cut: boolean | null;
+  status: string | null;
+};
+
 type TierRow = {
   id: string;
   tier: number;
   odds_text: string | null;
-  golfers:
-    | {
-        id: string;
-        name: string;
-        espn_athlete_id: string;
-        total_score: number | null;
-        is_cut: boolean | null;
-        status: string | null;
-      }
-    | {
-        id: string;
-        name: string;
-        espn_athlete_id: string;
-        total_score: number | null;
-        is_cut: boolean | null;
-        status: string | null;
-      }[]
-    | null;
+  golfers: Golfer | Golfer[] | null;
 };
 
 type ExistingPick = { tier: number; golfer_tier_id: string };
 type TierPerf = { tier: number; best: string[]; worst: string[] };
+
+function golferFromRow(row: TierRow): Golfer | null {
+  const golfer0 = row.golfers;
+  return Array.isArray(golfer0) ? golfer0[0] ?? null : golfer0;
+}
+
+function sortTierRows(rows: TierRow[]): TierRow[] {
+  return [...rows].sort((a, b) => {
+    const scoreA = golferFromRow(a)?.total_score;
+    const scoreB = golferFromRow(b)?.total_score;
+    const aNum = typeof scoreA === "number";
+    const bNum = typeof scoreB === "number";
+    if (aNum && bNum) return scoreA - scoreB;
+    if (aNum) return -1;
+    if (bNum) return 1;
+    const nameA = golferFromRow(a)?.name ?? "";
+    const nameB = golferFromRow(b)?.name ?? "";
+    return nameA.localeCompare(nameB);
+  });
+}
+
+function tierScoreBounds(rows: TierRow[]): { best: number | null; worst: number | null } {
+  const scores = rows
+    .map((row) => golferFromRow(row)?.total_score)
+    .filter((score): score is number => typeof score === "number");
+  if (!scores.length) return { best: null, worst: null };
+  return { best: Math.min(...scores), worst: Math.max(...scores) };
+}
 
 export function PicksClient({
   tournamentId,
@@ -72,15 +99,45 @@ export function PicksClient({
 }) {
   const router = useRouter();
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
+
+  const [liveTiers, setLiveTiers] = useState<TierRow[]>(tiers);
+  const [liveTournamentStatus, setLiveTournamentStatus] = useState(tournamentStatus);
+  const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
+  const [loadingLive, setLoadingLive] = useState(false);
+  const playerTiersMode = isPlayerTiersMode(liveTournamentStatus);
+
+  useEffect(() => {
+    setLiveTournamentStatus(tournamentStatus);
+  }, [tournamentStatus]);
+
+  useEffect(() => {
+    const tournamentChannel = supabase
+      .channel(`picks-status:${tournamentId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "tournaments", filter: `id=eq.${tournamentId}` },
+        (payload) => {
+          const nextStatus = (payload.new as { status?: string } | null)?.status;
+          if (nextStatus) setLiveTournamentStatus(nextStatus);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(tournamentChannel);
+    };
+  }, [supabase, tournamentId]);
+
+  const activeTiers = playerTiersMode ? liveTiers : tiers;
   const tiersByNumber = useMemo(() => {
     const map = new Map<number, TierRow[]>();
-    for (const row of tiers) {
+    for (const row of activeTiers) {
       const arr = map.get(row.tier) ?? [];
       arr.push(row);
       map.set(row.tier, arr);
     }
     return map;
-  }, [tiers]);
+  }, [activeTiers]);
 
   const [selection, setSelection] = useState<Record<number, string>>(() => {
     const init: Record<number, string> = {};
@@ -99,11 +156,6 @@ export function PicksClient({
   const [message, setMessage] = useState<string | null>(null);
   const [venmoOpen, setVenmoOpen] = useState(false);
   const [tierPerf, setTierPerf] = useState<TierPerf[]>([]);
-
-  const hasStarted = useMemo(
-    () => ["Locked", "Live", "Complete"].includes(tournamentStatus),
-    [tournamentStatus]
-  );
 
   const allChosen = useMemo(() => {
     for (let tier = 1; tier <= 7; tier++) {
@@ -186,8 +238,7 @@ export function PicksClient({
       if (!selectedId) continue;
       const options = tiersByNumber.get(tier) ?? [];
       const row = options.find((r) => r.id === selectedId);
-      const golfer0 = row?.golfers ?? null;
-      const golfer = Array.isArray(golfer0) ? golfer0[0] ?? null : golfer0;
+      const golfer = row ? golferFromRow(row) : null;
       if (!golfer) continue;
       out.push({ tier, name: golfer.name, total_score: golfer.total_score, is_cut: golfer.is_cut });
     }
@@ -202,20 +253,42 @@ export function PicksClient({
     [selectedPicks]
   );
 
-  useEffect(() => {
-    if (!hasStarted) {
-      setTierPerf([]);
-      return;
-    }
+  const loadLiveData = useCallback(
+    async (options?: { silent?: boolean }) => {
+      if (!playerTiersMode) return;
 
-    let cancelled = false;
-    async function loadTierPerf() {
+      if (!options?.silent) {
+        setLoadingLive(true);
+      }
+
+      const { data: healthRow } = await supabase
+        .from("sync_health")
+        .select("last_success_at")
+        .eq("tournament_id", tournamentId)
+        .maybeSingle();
+      setLastSyncAt(healthRow?.last_success_at ?? null);
+
+      const { data: tRow } = await supabase
+        .from("tournaments")
+        .select("status")
+        .eq("id", tournamentId)
+        .maybeSingle();
+      if (tRow?.status) {
+        setLiveTournamentStatus(tRow.status);
+      }
+
+      const { data: tierRows } = await supabase
+        .from("golfer_tiers")
+        .select(TIER_GOLFER_SELECT)
+        .eq("tournament_id", tournamentId)
+        .order("tier", { ascending: true });
+      setLiveTiers((tierRows as TierRow[] | null) ?? []);
+
       const { data: picks } = await supabase
         .from("picks")
         .select("user_id,golfer_tiers:golfer_tier_id(tier,golfers:golfer_id(name,total_score))")
         .eq("tournament_id", tournamentId);
 
-      if (cancelled) return;
       const byTier = new Map<number, { name: string; score: number }[]>();
       for (const row of picks ?? []) {
         const gt0 = row.golfer_tiers;
@@ -240,127 +313,263 @@ export function PicksClient({
         const worstScore = Math.max(...arr.map((x) => x.score));
         perf.push({
           tier: t,
-          best: arr.filter((x) => x.score === bestScore).map((x) => `${x.name} (${x.score})`),
-          worst: arr.filter((x) => x.score === worstScore).map((x) => `${x.name} (${x.score})`)
+          best: arr
+            .filter((x) => x.score === bestScore)
+            .map((x) => `${x.name} (${formatScore(x.score)})`),
+          worst: arr
+            .filter((x) => x.score === worstScore)
+            .map((x) => `${x.name} (${formatScore(x.score)})`)
         });
       }
       setTierPerf(perf);
+
+      if (!options?.silent) {
+        setLoadingLive(false);
+      }
+    },
+    [playerTiersMode, supabase, tournamentId]
+  );
+
+  useEffect(() => {
+    if (!playerTiersMode) {
+      setTierPerf([]);
+      return;
     }
-    void loadTierPerf();
+
+    void loadLiveData();
+
+    const golfersChannel = supabase
+      .channel(`picks-golfers:${tournamentId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "golfers", filter: `tournament_id=eq.${tournamentId}` },
+        () => void loadLiveData({ silent: true })
+      )
+      .subscribe();
+
+    const tournamentChannel = supabase
+      .channel(`picks-tournament:${tournamentId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "tournaments", filter: `id=eq.${tournamentId}` },
+        () => void loadLiveData({ silent: true })
+      )
+      .subscribe();
+
     return () => {
-      cancelled = true;
+      void supabase.removeChannel(golfersChannel);
+      void supabase.removeChannel(tournamentChannel);
     };
-  }, [hasStarted, supabase, tournamentId]);
+  }, [loadLiveData, playerTiersMode, supabase, tournamentId]);
+
+  useEffect(() => {
+    if (!playerTiersMode || liveTournamentStatus !== "Live") return;
+
+    const intervalId = window.setInterval(() => {
+      void (async () => {
+        if (lastSyncAt && !isSyncStale(lastSyncAt, 5)) {
+          await loadLiveData({ silent: true });
+          return;
+        }
+        try {
+          await fetch(`/api/t/${tournamentId}/refresh-scores`, { method: "POST" });
+        } catch {
+          // Best-effort refresh; polling still reloads current DB state.
+        }
+        await loadLiveData({ silent: true });
+      })();
+    }, 60_000);
+
+    return () => window.clearInterval(intervalId);
+  }, [lastSyncAt, liveTournamentStatus, loadLiveData, playerTiersMode, tournamentId]);
+
+  const staleSyncMessage = useMemo(() => {
+    if (!playerTiersMode || liveTournamentStatus !== "Live" || !lastSyncAt) return null;
+    const last = new Date(lastSyncAt).getTime();
+    const ageMin = Math.round((Date.now() - last) / 60000);
+    if (Number.isFinite(ageMin) && ageMin > 5) {
+      return `Live scores may be stale (last sync ~${ageMin}m ago).`;
+    }
+    return null;
+  }, [lastSyncAt, liveTournamentStatus, playerTiersMode]);
 
   return (
     <div className="space-y-4">
-      <div className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Make picks</h1>
-        <p className="text-sm text-slate-600">
-          {tournamentName} · Status: {tournamentStatus}. Pick 1 golfer per tier. Submission is blocked after the pool
-          locks.
-        </p>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div className="space-y-1">
+          <h1 className="text-2xl font-semibold tracking-tight">{playerTiersMode ? "Player tiers" : "Make picks"}</h1>
+          <p className="text-sm text-slate-600">
+            {tournamentName} · Status: {playerTiersMode ? liveTournamentStatus : tournamentStatus}.{" "}
+            {playerTiersMode
+              ? "Live golfer totals by tier. Compare pool picks to see the best and worst values."
+              : "Pick 1 golfer per tier. Submission is blocked after the pool locks."}
+          </p>
+          {staleSyncMessage ? <p className="text-xs text-amber-700">{staleSyncMessage}</p> : null}
+        </div>
+        {playerTiersMode ? (
+          <Button variant="secondary" onClick={() => void loadLiveData()} disabled={loadingLive}>
+            Refresh
+          </Button>
+        ) : null}
       </div>
 
-      {hasStarted ? (
+      {playerTiersMode ? (
         <Card>
           <CardHeader>
             <CardTitle>Your current overall score</CardTitle>
             <CardDescription>Best 4 golfer totals are counted (same scoring as leaderboard).</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="inline-flex items-center rounded-md border border-slate-300 bg-slate-50 px-4 py-2 text-2xl font-semibold tabular-nums">
-              {myOverallScore ?? "—"}
+            <div
+              className={cn(
+                "inline-flex items-center rounded-md border border-slate-300 bg-slate-50 px-4 py-2 text-2xl font-semibold tabular-nums",
+                golferTotalScoreClass(myOverallScore, null)
+              )}
+            >
+              {formatScore(myOverallScore)}
             </div>
           </CardContent>
         </Card>
       ) : null}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Team name</CardTitle>
-          <CardDescription>
-            This appears on the leaderboard as your primary identity. Required before picks can be submitted.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          <Label htmlFor="team-name">Team name</Label>
-          <Input
-            id="team-name"
-            type="text"
-            maxLength={60}
-            placeholder="e.g. Birdie Brigade"
-            value={teamNameInput}
-            onChange={(e) => setTeamNameInput(e.target.value)}
-          />
-        </CardContent>
-      </Card>
+      {!playerTiersMode ? (
+        <>
+          <Card>
+            <CardHeader>
+              <CardTitle>Team name</CardTitle>
+              <CardDescription>
+                This appears on the leaderboard as your primary identity. Required before picks can be submitted.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <Label htmlFor="team-name">Team name</Label>
+              <Input
+                id="team-name"
+                type="text"
+                maxLength={60}
+                placeholder="e.g. Birdie Brigade"
+                value={teamNameInput}
+                onChange={(e) => setTeamNameInput(e.target.value)}
+              />
+            </CardContent>
+          </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Tiebreaker</CardTitle>
-          <CardDescription>Predict the winner&apos;s score relative to par (e.g. -12). Used only to break ties.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          <Label htmlFor="rel-par">Winning score vs par</Label>
-          <Input
-            id="rel-par"
-            type="text"
-            inputMode="text"
-            pattern="-?[0-9]*"
-            placeholder="-12"
-            value={predictedRelParInput}
-            onChange={(e) => {
-              const raw = e.target.value;
-              if (raw === "" || raw === "-") {
-                setPredictedRelParInput(raw);
-                return;
-              }
-              const sign = raw.trim().startsWith("-") ? "-" : "";
-              const digits = raw.replace(/[^0-9]/g, "");
-              setPredictedRelParInput(`${sign}${digits}`);
-            }}
-          />
-        </CardContent>
-      </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Tiebreaker</CardTitle>
+              <CardDescription>
+                Predict the winner&apos;s score relative to par (e.g. -12). Used only to break ties.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <Label htmlFor="rel-par">Winning score vs par</Label>
+              <Input
+                id="rel-par"
+                type="text"
+                inputMode="text"
+                pattern="-?[0-9]*"
+                placeholder="-12"
+                value={predictedRelParInput}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  if (raw === "" || raw === "-") {
+                    setPredictedRelParInput(raw);
+                    return;
+                  }
+                  const sign = raw.trim().startsWith("-") ? "-" : "";
+                  const digits = raw.replace(/[^0-9]/g, "");
+                  setPredictedRelParInput(`${sign}${digits}`);
+                }}
+              />
+            </CardContent>
+          </Card>
+        </>
+      ) : null}
 
       <div className="grid gap-4 lg:grid-cols-2">
         {Array.from({ length: 7 }, (_, i) => i + 1).map((tierNum) => {
-          const rows = tiersByNumber.get(tierNum) ?? [];
+          const rows = playerTiersMode ? sortTierRows(tiersByNumber.get(tierNum) ?? []) : tiersByNumber.get(tierNum) ?? [];
+          const bounds = playerTiersMode ? tierScoreBounds(rows) : { best: null, worst: null };
+
           return (
             <Card key={tierNum}>
               <CardHeader>
                 <CardTitle>Tier {tierNum}</CardTitle>
-                <CardDescription>Select 1 golfer.</CardDescription>
+                <CardDescription>
+                  {playerTiersMode ? "Live totals for every golfer in this tier." : "Select 1 golfer."}
+                </CardDescription>
               </CardHeader>
               <CardContent>
                 {rows.length ? (
-                  <RadioGroup
-                    value={selection[tierNum] ?? ""}
-                    onValueChange={(v) => setSelection((s) => ({ ...s, [tierNum]: v }))}
-                    className="gap-3"
-                  >
-                    {rows.map((row) => {
-                      const golfer = Array.isArray(row.golfers) ? row.golfers[0] : row.golfers;
-                      return (
-                        <label
-                          key={row.id}
-                          className={cn(
-                            "flex cursor-pointer items-start gap-3 rounded-md border border-slate-200 p-3 hover:bg-slate-50",
-                            selection[tierNum] === row.id && "border-slate-900"
-                          )}
-                        >
-                          <RadioGroupItem value={row.id} aria-label={`Select ${golfer?.name ?? "golfer"}`} />
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="truncate font-medium">{golfer?.name ?? "Unknown golfer"}</div>
-                              <div className="shrink-0 text-xs text-slate-600">{row.odds_text ?? ""}</div>
+                  playerTiersMode ? (
+                    <div className="space-y-2">
+                      {rows.map((row) => {
+                        const golfer = golferFromRow(row);
+                        const isMyPick = selection[tierNum] === row.id;
+                        const score = golfer?.total_score ?? null;
+                        const isCut = golfer?.is_cut ?? null;
+                        const isBestValue = bounds.best !== null && score === bounds.best;
+                        const isWorstValue = bounds.worst !== null && score === bounds.worst && bounds.worst !== bounds.best;
+
+                        return (
+                          <div
+                            key={row.id}
+                            className={cn(
+                              "flex items-start justify-between gap-3 rounded-md border border-slate-200 p-3",
+                              isMyPick && "border-slate-900 bg-slate-50"
+                            )}
+                          >
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <div className="truncate font-medium">{golfer?.name ?? "Unknown golfer"}</div>
+                                {isMyPick ? <Badge variant="secondary">Your pick</Badge> : null}
+                                {isBestValue ? <Badge variant="secondary">Best value</Badge> : null}
+                                {isWorstValue ? <Badge variant="destructive">Worst value</Badge> : null}
+                              </div>
+                            </div>
+                            <div className="shrink-0 text-right">
+                              <div
+                                className={cn(
+                                  "text-sm font-semibold tabular-nums",
+                                  golferTotalScoreClass(score, isCut)
+                                )}
+                              >
+                                {formatGolferTotalScore(score, isCut)}
+                              </div>
+                              {isCut === false ? <div className="text-xs text-red-700">CUT</div> : null}
                             </div>
                           </div>
-                        </label>
-                      );
-                    })}
-                  </RadioGroup>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <RadioGroup
+                      value={selection[tierNum] ?? ""}
+                      onValueChange={(v) => setSelection((s) => ({ ...s, [tierNum]: v }))}
+                      className="gap-3"
+                    >
+                      {rows.map((row) => {
+                        const golfer = golferFromRow(row);
+                        return (
+                          <label
+                            key={row.id}
+                            className={cn(
+                              "flex cursor-pointer items-start gap-3 rounded-md border border-slate-200 p-3 hover:bg-slate-50",
+                              selection[tierNum] === row.id && "border-slate-900"
+                            )}
+                          >
+                            <RadioGroupItem value={row.id} aria-label={`Select ${golfer?.name ?? "golfer"}`} />
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="truncate font-medium">{golfer?.name ?? "Unknown golfer"}</div>
+                                <div className="shrink-0 text-xs text-slate-600">{row.odds_text ?? ""}</div>
+                              </div>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </RadioGroup>
+                  )
                 ) : (
                   <div className="text-sm text-slate-600">No golfers found for this tier yet.</div>
                 )}
@@ -370,15 +579,17 @@ export function PicksClient({
         })}
       </div>
 
-      <div className="flex flex-wrap items-center gap-3">
-        <Button onClick={openVenmoStep} disabled={!allChosen || submitting}>
-          {submitting ? "Submitting..." : "Submit picks"}
-        </Button>
-        {!allChosen ? <div className="text-sm text-slate-600">You must select 7 golfers.</div> : null}
-        {message ? <div className="text-sm text-slate-700">{message}</div> : null}
-      </div>
+      {!playerTiersMode ? (
+        <div className="flex flex-wrap items-center gap-3">
+          <Button onClick={openVenmoStep} disabled={!allChosen || submitting}>
+            {submitting ? "Submitting..." : "Submit picks"}
+          </Button>
+          {!allChosen ? <div className="text-sm text-slate-600">You must select 7 golfers.</div> : null}
+          {message ? <div className="text-sm text-slate-700">{message}</div> : null}
+        </div>
+      ) : null}
 
-      {hasStarted ? (
+      {playerTiersMode ? (
         <Card>
           <CardHeader>
             <CardTitle>Tier-by-tier performance</CardTitle>
@@ -395,7 +606,10 @@ export function PicksClient({
                   <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
                     <div className="font-medium">Tier {tier}</div>
                     <div className="text-sm text-slate-700">
-                      Your pick: {mine ? `${mine.name} (${mine.total_score ?? "-"})` : "—"}
+                      Your pick:{" "}
+                      {mine
+                        ? `${mine.name} (${formatGolferTotalScore(mine.total_score, mine.is_cut)})`
+                        : "—"}
                     </div>
                   </div>
                   <div className="text-sm text-slate-700">
