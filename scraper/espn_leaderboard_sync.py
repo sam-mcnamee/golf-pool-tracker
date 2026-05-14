@@ -108,67 +108,129 @@ def _try_parse_iso_datetime(s: str) -> Optional[datetime]:
         return None
 
 
-def _iter_candidate_time_strings(obj: Any) -> Iterable[str]:
-    """
-    Heuristic scan for tee/start time fields in ESPN core payloads.
-    We keep this permissive because ESPN structures vary by event and pre/post tee-times.
-    """
-    wanted_keys = {
-        "teeTime",
-        "tee_time",
-        "teeTimeUTC",
-        "startTime",
-        "teeOffTime",
-        "teetime",
-        "teetimeutc",
-        "starttime",
-    }
-    if isinstance(obj, dict):
-        for k, v in obj.items():
-            if isinstance(k, str) and k in wanted_keys and isinstance(v, str):
-                yield v
-            else:
-                yield from _iter_candidate_time_strings(v)
-    elif isinstance(obj, list):
-        for v in obj:
-            yield from _iter_candidate_time_strings(v)
+def _to_utc(dt: datetime) -> datetime:
+    return dt.astimezone(ZoneInfo("UTC"))
 
 
-def compute_first_tee_time_utc_from_core(event_id: str) -> Optional[datetime]:
-    """
-    Attempt to compute the earliest Round 1 tee time using ESPN's Core API.
-    Returns a UTC datetime if found.
-    """
-    # Event details usually include competitions; competition payload often carries tee times.
-    event_url = f"{ESPN_CORE_BASE}/events/{event_id}"
-    event = espn_get_json_url(event_url)
+def _parse_db_ts(value: Any) -> Optional[datetime]:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return _to_utc(value)
+    if isinstance(value, str) and value.strip():
+        parsed = _try_parse_iso_datetime(value)
+        if parsed is not None:
+            return _to_utc(parsed)
+    return None
 
-    comp_urls: List[str] = []
-    competitions = event.get("competitions")
-    if isinstance(competitions, list):
-        for c in competitions:
-            if isinstance(c, dict) and isinstance(c.get("$ref"), str):
-                comp_urls.append(str(c["$ref"]))
-            elif isinstance(c, str) and c.startswith("http"):
-                comp_urls.append(c)
 
-    # Prefer first competition; if none, fall back to scanning event itself.
-    payloads: List[Any] = []
-    if comp_urls:
-        payloads.append(espn_get_json_url(comp_urls[0]))
-    payloads.append(event)
-
+def earliest_round1_tee_utc_from_competitors(competitors: List[Any]) -> Optional[datetime]:
+    """Earliest Round 1 tee time from ESPN site leaderboard competitor rows."""
     candidates: List[datetime] = []
-    for p in payloads:
-        for s in _iter_candidate_time_strings(p):
-            dt = _try_parse_iso_datetime(s)
-            if dt is None:
-                continue
-            candidates.append(dt.astimezone(ZoneInfo("UTC")))
+    for row in competitors:
+        if not isinstance(row, dict):
+            continue
+
+        linescores = row.get("linescores")
+        if isinstance(linescores, list):
+            for ls in linescores:
+                if not isinstance(ls, dict):
+                    continue
+                if ls.get("period") != 1:
+                    continue
+                tee_time = ls.get("teeTime")
+                if isinstance(tee_time, str):
+                    dt = _try_parse_iso_datetime(tee_time)
+                    if dt is not None:
+                        candidates.append(_to_utc(dt))
+
+        status_obj = row.get("status")
+        if isinstance(status_obj, dict) and _parse_int_round(status_obj.get("period")) == 1:
+            tee_time = status_obj.get("teeTime")
+            if isinstance(tee_time, str):
+                dt = _try_parse_iso_datetime(tee_time)
+                if dt is not None:
+                    candidates.append(_to_utc(dt))
 
     if not candidates:
         return None
     return min(candidates)
+
+
+def _should_advance_first_tee_at(earliest: datetime, existing: Optional[datetime]) -> bool:
+    if existing is None:
+        return True
+    return _to_utc(earliest) < _to_utc(existing)
+
+
+def resolve_first_tee_at_for_upsert(
+    *,
+    earliest: Optional[datetime],
+    existing_first_tee_at: Any,
+    starts_at_utc: Optional[str],
+) -> Tuple[Optional[str], Optional[str]]:
+    existing = _parse_db_ts(existing_first_tee_at)
+    if earliest is not None and _should_advance_first_tee_at(earliest, existing):
+        first_iso = _to_utc(earliest).isoformat()
+        return first_iso, first_iso
+    if existing is not None:
+        ex_iso = _to_utc(existing).isoformat()
+        return ex_iso, starts_at_utc or ex_iso
+    return None, starts_at_utc
+
+
+def maybe_update_tournament_first_tee_from_competitors(
+    sb: Optional[Client],
+    supabase_url: str,
+    service_key: str,
+    tournament_id: str,
+    competitors: List[Any],
+    *,
+    dry_run: bool,
+) -> None:
+    earliest = earliest_round1_tee_utc_from_competitors(competitors)
+    if earliest is None:
+        return
+
+    if sb is not None:
+        sel = sb.table("tournaments").select("status,first_tee_at").eq("id", tournament_id).limit(1).execute()
+        row = (sel.data or [None])[0]
+    else:
+        headers = {
+            "apikey": service_key,
+            "Authorization": f"Bearer {service_key}",
+        }
+        url = f"{supabase_url}/rest/v1/tournaments?id=eq.{tournament_id}&select=status,first_tee_at"
+        r = requests.get(url, headers=headers, timeout=30)
+        r.raise_for_status()
+        row = (r.json() or [None])[0]
+
+    if not isinstance(row, dict):
+        return
+    if row.get("status") not in ("Upcoming", "Open"):
+        return
+
+    existing = _parse_db_ts(row.get("first_tee_at"))
+    if not _should_advance_first_tee_at(earliest, existing):
+        return
+
+    first_iso = _to_utc(earliest).isoformat()
+    patch = {"first_tee_at": first_iso, "starts_at": first_iso}
+    if dry_run:
+        print(json.dumps({"first_tee_update": patch, "tournament_id": tournament_id}))
+        return
+
+    if sb is not None:
+        sb.table("tournaments").update(patch).eq("id", tournament_id).execute()
+    else:
+        headers = {
+            "apikey": service_key,
+            "Authorization": f"Bearer {service_key}",
+            "Content-Type": "application/json",
+        }
+        url = f"{supabase_url}/rest/v1/tournaments?id=eq.{tournament_id}"
+        r = requests.patch(url, headers=headers, json=patch, timeout=30)
+        r.raise_for_status()
 
 
 def pick_primary_event(events_payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -229,17 +291,14 @@ def ensure_current_tournament(sb: Client) -> Tuple[str, str]:
 
     first_tee_dt: Optional[datetime] = None
     try:
-        first_tee_dt = compute_first_tee_time_utc_from_core(espn_event_id)
+        leaderboard_payload = espn_get_json(espn_event_id)
+        first_tee_dt = earliest_round1_tee_utc_from_competitors(extract_competitors(leaderboard_payload))
     except Exception:
         # Tee times may not be published yet; keep any existing first_tee_at.
         first_tee_dt = None
 
-    first_tee_at_utc: Optional[str] = first_tee_dt.isoformat() if first_tee_dt is not None else None
-
     starts_at_utc: Optional[str] = None
-    if first_tee_at_utc is not None:
-        starts_at_utc = first_tee_at_utc
-    elif start_date:
+    if start_date:
         s = start_date.replace("Z", "+00:00")
         starts_at_utc = datetime.fromisoformat(s).astimezone(ZoneInfo("UTC")).isoformat()
 
@@ -254,6 +313,12 @@ def ensure_current_tournament(sb: Client) -> Tuple[str, str]:
         existing_first_tee_at.get("first_tee_at") if isinstance(existing_first_tee_at, dict) else None
     )
 
+    first_tee_at_utc, starts_at_utc = resolve_first_tee_at_for_upsert(
+        earliest=first_tee_dt,
+        existing_first_tee_at=existing_first_tee_at,
+        starts_at_utc=starts_at_utc,
+    )
+
     upsert_row: Dict[str, Any] = {
         "name": name,
         "espn_event_id": espn_event_id,
@@ -264,11 +329,6 @@ def ensure_current_tournament(sb: Client) -> Tuple[str, str]:
     }
     if first_tee_at_utc is not None:
         upsert_row["first_tee_at"] = first_tee_at_utc
-        upsert_row["starts_at"] = first_tee_at_utc
-    elif existing_first_tee_at:
-        upsert_row["first_tee_at"] = existing_first_tee_at
-        if starts_at_utc is None:
-            upsert_row["starts_at"] = existing_first_tee_at
 
     sb.table("tournaments").upsert(
         upsert_row,
@@ -726,6 +786,15 @@ def sync_leaderboard_once(
 ) -> int:
     payload = espn_get_json(str(espn_event_id))
     competitors = extract_competitors(payload)
+
+    maybe_update_tournament_first_tee_from_competitors(
+        sb,
+        supabase_url,
+        service_key,
+        tournament_id,
+        competitors,
+        dry_run=dry_run,
+    )
 
     updates: List[GolferUpdate] = []
     used_detail = 0
