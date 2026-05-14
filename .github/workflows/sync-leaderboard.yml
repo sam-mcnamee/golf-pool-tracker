@@ -30,11 +30,10 @@ jobs:
         run: |
           python scraper/espn_leaderboard_sync.py --mode current
 
-      - name: Health check (warn if stale)
-        continue-on-error: true
+      - name: Health check
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
-          python scraper/check_sync_health.py --minutes 30
+          python scraper/check_sync_health.py --minutes 30 --stale-minutes 25
 

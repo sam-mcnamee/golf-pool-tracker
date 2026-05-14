@@ -1,12 +1,16 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
 
+import { runLeaderboardSync } from "@/lib/sync/run-leaderboard-sync";
 import { getClientEnv, getServerEnv } from "@/lib/supabase/env";
+
+export { isSyncStale } from "@/lib/sync/sync-staleness";
 
 export type LeaderboardSyncTriggerResult = {
   ok: boolean;
-  mode: "github_dispatch" | "python" | "skipped";
+  mode: "direct" | "github_dispatch" | "python" | "skipped";
   detail?: string;
+  lastSuccessAt?: string | null;
 };
 
 function logSyncEvent(event: string, data: Record<string, unknown>) {
@@ -16,13 +20,6 @@ function logSyncEvent(event: string, data: Record<string, unknown>) {
     return;
   }
   console.log(JSON.stringify(payload));
-}
-
-export function isSyncStale(lastSuccessAt: string | null | undefined, maxAgeMinutes: number): boolean {
-  if (!lastSuccessAt) return true;
-  const lastMs = Date.parse(lastSuccessAt);
-  if (!Number.isFinite(lastMs)) return true;
-  return Date.now() - lastMs > maxAgeMinutes * 60_000;
 }
 
 async function dispatchGithubWorkflow(reason: string): Promise<LeaderboardSyncTriggerResult> {
@@ -104,8 +101,38 @@ async function runPythonSync(reason: string): Promise<LeaderboardSyncTriggerResu
   });
 }
 
-export async function triggerLeaderboardSync(reason: string): Promise<LeaderboardSyncTriggerResult> {
-  logSyncEvent("leaderboard_sync_trigger_requested", { reason });
+export async function triggerLeaderboardSync(
+  reason: string,
+  options?: { tournamentId?: string }
+): Promise<LeaderboardSyncTriggerResult> {
+  logSyncEvent("leaderboard_sync_trigger_requested", { reason, tournamentId: options?.tournamentId ?? null });
+
+  const serverEnv = getServerEnv();
+  if (serverEnv.SUPABASE_SERVICE_ROLE_KEY) {
+    try {
+      const direct = await runLeaderboardSync({ tournamentId: options?.tournamentId });
+      const detail = direct.details.join("; ");
+      if (direct.ok) {
+        logSyncEvent("leaderboard_sync_direct_finished", { reason, detail, lastSuccessAt: direct.lastSuccessAt });
+        const github = await dispatchGithubWorkflow(reason);
+        if (github.ok) {
+          return {
+            ok: true,
+            mode: "direct",
+            detail: `${detail}; ${github.detail}`,
+            lastSuccessAt: direct.lastSuccessAt
+          };
+        }
+        return { ok: true, mode: "direct", detail, lastSuccessAt: direct.lastSuccessAt };
+      }
+      logSyncEvent("leaderboard_sync_direct_failed", { reason, detail });
+    } catch (error) {
+      logSyncEvent("leaderboard_sync_direct_failed", {
+        reason,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
 
   const github = await dispatchGithubWorkflow(reason);
   if (github.ok) return github;
@@ -121,11 +148,11 @@ export async function triggerLeaderboardSync(reason: string): Promise<Leaderboar
 
   logSyncEvent("leaderboard_sync_trigger_failed", {
     reason,
-    detail: github.detail ?? "github dispatch unavailable on Vercel"
+    detail: github.detail ?? "direct sync unavailable and github dispatch failed on Vercel"
   });
   return {
     ok: false,
     mode: "skipped",
-    detail: github.detail ?? "github dispatch unavailable on Vercel"
+    detail: github.detail ?? "direct sync unavailable and github dispatch failed on Vercel"
   };
 }

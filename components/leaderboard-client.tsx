@@ -9,6 +9,7 @@ import {
   tiebreakDistanceVsActual,
   type PickedGolfer
 } from "@/lib/domain/scoring";
+import { isSyncStale } from "@/lib/sync/sync-staleness";
 import { formatRoundCell, roundCellClassName } from "@/lib/domain/round-display";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -357,11 +358,22 @@ export function LeaderboardClient({
   useEffect(() => {
     if (tournament?.status !== "Live") return;
     const intervalId = window.setInterval(() => {
-      void load({ silent: true });
+      void (async () => {
+        if (lastSyncAt && !isSyncStale(lastSyncAt, 5)) {
+          await load({ silent: true });
+          return;
+        }
+        try {
+          await fetch(`/api/t/${tournamentId}/refresh-scores`, { method: "POST" });
+        } catch {
+          // Best-effort refresh; polling still reloads current DB state.
+        }
+        await load({ silent: true });
+      })();
     }, 60_000);
     return () => window.clearInterval(intervalId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tournament?.status, tournamentId]);
+  }, [tournament?.status, tournamentId, lastSyncAt]);
 
   return (
     <div className="space-y-4">
@@ -385,7 +397,7 @@ export function LeaderboardClient({
             (() => {
               const last = new Date(lastSyncAt).getTime();
               const ageMin = Math.round((Date.now() - last) / 60000);
-              if (Number.isFinite(ageMin) && ageMin > 20) {
+              if (Number.isFinite(ageMin) && ageMin > 5) {
                 return <p className="text-xs text-amber-700">Live scores may be stale (last sync ~{ageMin}m ago).</p>;
               }
               return null;
