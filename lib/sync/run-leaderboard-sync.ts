@@ -6,7 +6,7 @@ import {
   fetchEspnLeaderboard,
   isActivelyScoring,
   normalizeName,
-  totalScoreFromStatusDetail,
+  resolveCompetitorTotalScore,
   type GolferUpdate
 } from "@/lib/sync/espn-leaderboard-parse";
 
@@ -262,12 +262,13 @@ async function syncLeaderboardOnce(
   const competitors = extractCompetitors(payload);
 
   const updates: GolferUpdate[] = [];
+  // DB columns: total_from_detail_count = scoreToPar, total_from_fallback_count = score.displayValue
   let totalFromDetailCount = 0;
   let totalFromFallbackCount = 0;
   for (const row of competitors) {
-    const statusObj = row.status;
-    if (totalScoreFromStatusDetail(statusObj) !== null) totalFromDetailCount += 1;
-    else totalFromFallbackCount += 1;
+    const { source } = resolveCompetitorTotalScore(row);
+    if (source === "scoreToPar") totalFromDetailCount += 1;
+    else if (source === "scoreDisplay") totalFromFallbackCount += 1;
     const update = competitorToUpdate(row);
     if (update) updates.push(update);
   }

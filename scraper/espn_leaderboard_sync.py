@@ -422,6 +422,39 @@ def extract_competitor_score_display(row: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+def extract_score_to_par_display(row: Dict[str, Any]) -> Optional[str]:
+    """ESPN tournament cumulative score (relative to par) from statistics.scoreToPar."""
+    statistics = row.get("statistics")
+    if not isinstance(statistics, list):
+        return None
+    for entry in statistics:
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("name") != "scoreToPar":
+            continue
+        dv = entry.get("displayValue")
+        if isinstance(dv, str) and dv.strip():
+            return dv
+    return None
+
+
+def resolve_competitor_total_score(row: Dict[str, Any]) -> tuple[Optional[int], Optional[str], Optional[bool], str]:
+    """
+    Returns (total_score, status_text, is_cut, source) where source is
+    'scoreToPar' | 'scoreDisplay' | 'none'.
+    """
+    score_to_par = extract_score_to_par_display(row)
+    if score_to_par:
+        rel, st, cut = parse_total_score(score_to_par)
+        if rel is not None:
+            return (rel, st, cut, "scoreToPar")
+
+    score_display = extract_competitor_score_display(row)
+    rel, st, cut = parse_total_score(score_display)
+    source = "scoreDisplay" if score_display and rel is not None else "none"
+    return (rel, st, cut, source)
+
+
 _DETAIL_SCORE_RE = re.compile(r"^\s*(?P<score>E|[+-]?\d+)\s*(?:\(|$)", flags=re.I)
 
 
@@ -570,8 +603,7 @@ def competitor_to_update(row: Dict[str, Any]) -> Optional[GolferUpdate]:
     if not athlete_id or not name:
         return None
 
-    score_display = extract_competitor_score_display(row)
-    total_score, score_status, score_is_cut = parse_total_score(score_display)
+    total_score, score_status, score_is_cut, _total_source = resolve_competitor_total_score(row)
 
     status_text: Optional[str] = None
     is_cut: Optional[bool] = None
@@ -584,10 +616,12 @@ def competitor_to_update(row: Dict[str, Any]) -> Optional[GolferUpdate]:
         else:
             status_text = status_obj.get("detail") or status_obj.get("description")
 
-    # Prefer the live score shown in ESPN status.detail/todayDetail (e.g. '+1(15)') when available.
-    total_from_detail = total_score_from_status_detail(status_obj)
-    if total_from_detail is not None:
-        total_score = total_from_detail
+    score_display = extract_competitor_score_display(row)
+    _rel, score_status_from_display, score_is_cut_from_display = parse_total_score(score_display)
+    if score_status_from_display:
+        score_status = score_status_from_display
+    if score_is_cut_from_display is not None:
+        score_is_cut = score_is_cut_from_display
 
     if score_status:
         status_text = score_status
@@ -859,16 +893,16 @@ def sync_leaderboard_once(
     )
 
     updates: List[GolferUpdate] = []
+    # DB columns: total_from_detail_count = scoreToPar, total_from_fallback_count = score.displayValue
     used_detail = 0
     used_score_display = 0
     for row in competitors:
         if not isinstance(row, dict):
             continue
-        status_obj = row.get("status")
-        total_from_detail = total_score_from_status_detail(status_obj)
-        if total_from_detail is not None:
+        _rel, _st, _cut, source = resolve_competitor_total_score(row)
+        if source == "scoreToPar":
             used_detail += 1
-        else:
+        elif source == "scoreDisplay":
             used_score_display += 1
         u = competitor_to_update(row)
         if u is not None:

@@ -116,6 +116,45 @@ function extractCompetitorScoreDisplay(row: JsonRecord): string | null {
   return null;
 }
 
+/** ESPN tournament cumulative score (relative to par) from statistics.scoreToPar. */
+export function extractScoreToParDisplay(row: JsonRecord): string | null {
+  const statistics = row.statistics;
+  if (!Array.isArray(statistics)) return null;
+  for (const entry of statistics) {
+    if (!isRecord(entry)) continue;
+    if (entry.name !== "scoreToPar") continue;
+    const displayValue = entry.displayValue;
+    if (typeof displayValue === "string" && displayValue.trim()) {
+      return displayValue;
+    }
+  }
+  return null;
+}
+
+export type TotalScoreSource = "scoreToPar" | "scoreDisplay" | "none";
+
+export function resolveCompetitorTotalScore(row: JsonRecord): {
+  totalScore: number | null;
+  statusText: string | null;
+  isCut: boolean | null;
+  source: TotalScoreSource;
+} {
+  const scoreToParDisplay = extractScoreToParDisplay(row);
+  if (scoreToParDisplay) {
+    const parsed = parseTotalScore(scoreToParDisplay);
+    if (parsed.totalScore !== null) {
+      return { ...parsed, source: "scoreToPar" };
+    }
+  }
+
+  const scoreDisplay = extractCompetitorScoreDisplay(row);
+  const parsed = parseTotalScore(scoreDisplay);
+  return {
+    ...parsed,
+    source: scoreDisplay && parsed.totalScore !== null ? "scoreDisplay" : "none"
+  };
+}
+
 export function totalScoreFromStatusDetail(statusObj: unknown): number | null {
   if (!isRecord(statusObj)) return null;
   for (const key of ["detail", "todayDetail"]) {
@@ -194,8 +233,9 @@ export function competitorToUpdate(row: JsonRecord): GolferUpdate | null {
   const name = athlete.displayName ?? athlete.name;
   if (athleteId == null || name == null) return null;
 
-  const scoreDisplay = extractCompetitorScoreDisplay(row);
-  let { totalScore, statusText, isCut } = parseTotalScore(scoreDisplay);
+  const { totalScore, statusText: scoreStatusText, isCut: scoreIsCut } = resolveCompetitorTotalScore(row);
+  let statusText = scoreStatusText;
+  let isCut = scoreIsCut;
 
   const statusObj = row.status;
   if (isRecord(statusObj)) {
@@ -209,9 +249,7 @@ export function competitorToUpdate(row: JsonRecord): GolferUpdate | null {
     }
   }
 
-  const totalFromDetail = totalScoreFromStatusDetail(statusObj);
-  if (totalFromDetail !== null) totalScore = totalFromDetail;
-
+  const scoreDisplay = extractCompetitorScoreDisplay(row);
   const scoreParsed = parseTotalScore(scoreDisplay);
   if (scoreParsed.statusText) statusText = scoreParsed.statusText;
   if (scoreParsed.isCut !== null) isCut = scoreParsed.isCut;
