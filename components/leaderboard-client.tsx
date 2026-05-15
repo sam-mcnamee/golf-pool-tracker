@@ -345,6 +345,16 @@ export function LeaderboardClient({
 
   useEffect(() => {
     if (tournament?.status !== "Live") return;
+
+    void (async () => {
+      try {
+        await fetch(`/api/t/${tournamentId}/refresh-scores?force=1`, { method: "POST" });
+      } catch {
+        // Best-effort; still reload current DB state below.
+      }
+      await load({ silent: true });
+    })();
+
     const intervalId = window.setInterval(() => {
       void (async () => {
         if (lastSyncAt && !isSyncStale(lastSyncAt, 5)) {

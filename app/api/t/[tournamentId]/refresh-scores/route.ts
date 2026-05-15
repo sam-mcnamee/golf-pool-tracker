@@ -6,8 +6,10 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
-export async function POST(_request: Request, { params }: { params: Promise<{ tournamentId: string }> }) {
+export async function POST(request: Request, { params }: { params: Promise<{ tournamentId: string }> }) {
   const { tournamentId } = await params;
+  const url = new URL(request.url);
+  const force = url.searchParams.get("force") === "1" || url.searchParams.get("force") === "true";
   const supabase = createSupabaseServiceRoleClient();
 
   const { data: tournament, error: tournamentError } = await supabase
@@ -32,7 +34,7 @@ export async function POST(_request: Request, { params }: { params: Promise<{ to
     .maybeSingle();
 
   const lastSuccessAt = healthRow?.last_success_at ?? healthRow?.last_run_at ?? null;
-  if (!isSyncStale(lastSuccessAt, 5)) {
+  if (!force && !isSyncStale(lastSuccessAt, 5)) {
     return NextResponse.json({
       ok: true,
       throttled: true,

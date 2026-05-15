@@ -2,7 +2,7 @@ import { after } from "next/server";
 
 import { LeaderboardClient } from "@/components/leaderboard-client";
 import { sortTournamentsByScheduleDesc } from "@/lib/domain/tournament-sort";
-import { isSyncStale, triggerLeaderboardSync } from "@/lib/sync/leaderboard-sync-trigger";
+import { triggerLeaderboardSync } from "@/lib/sync/leaderboard-sync-trigger";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const tournamentListSelect =
@@ -12,14 +12,15 @@ export default async function LeaderboardPage({ params }: { params: Promise<{ to
   const { tournamentId } = await params;
   const supabase = await createSupabaseServerClient();
 
-  const [{ data: tournamentRow }, { data: healthRow }] = await Promise.all([
-    supabase.from("tournaments").select("status").eq("id", tournamentId).maybeSingle(),
-    supabase.from("sync_health").select("last_success_at").eq("tournament_id", tournamentId).maybeSingle()
-  ]);
+  const { data: tournamentRow } = await supabase
+    .from("tournaments")
+    .select("status")
+    .eq("id", tournamentId)
+    .maybeSingle();
 
-  if (tournamentRow?.status === "Live" && isSyncStale(healthRow?.last_success_at, 12)) {
+  if (tournamentRow?.status === "Live") {
     after(async () => {
-      await triggerLeaderboardSync("leaderboard_visit");
+      await triggerLeaderboardSync("leaderboard_visit", { tournamentId });
     });
   }
 
