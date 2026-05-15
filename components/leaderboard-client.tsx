@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
@@ -169,22 +169,31 @@ export function LeaderboardClient({
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
   const rankLabels = useMemo(() => competitionRankLabels(rows), [rows]);
 
-  async function load(options?: { silent?: boolean }) {
+  const loadGenerationRef = useRef(0);
+  const lastSyncAtRef = useRef<string | null>(null);
+  const forceSyncDoneRef = useRef<string | null>(null);
+  const debouncedLoadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const load = useCallback(async (options?: { silent?: boolean }) => {
+    const generation = ++loadGenerationRef.current;
     if (!options?.silent) {
       setLoading(true);
     }
     setError(null);
 
     const {
-      data: { user }
-    } = await supabase.auth.getUser();
-    setIsAuthed(Boolean(user));
+      data: { session }
+    } = await supabase.auth.getSession();
+    if (generation !== loadGenerationRef.current) return;
+    setIsAuthed(Boolean(session?.user));
 
     const { data: t, error: tErr } = await supabase
       .from("tournaments")
       .select("name,status,cut_complete,actual_winning_score_rel_par")
       .eq("id", tournamentId)
       .maybeSingle();
+
+    if (generation !== loadGenerationRef.current) return;
 
     if (tErr || !t) {
       setError(tErr?.message ?? "Tournament not found");
@@ -198,7 +207,11 @@ export function LeaderboardClient({
       .select("last_success_at")
       .eq("tournament_id", tournamentId)
       .maybeSingle();
-    setLastSyncAt(healthRow?.last_success_at ?? null);
+    if (generation !== loadGenerationRef.current) return;
+
+    const syncAt = healthRow?.last_success_at ?? null;
+    lastSyncAtRef.current = syncAt;
+    setLastSyncAt(syncAt);
 
     // Picks visibility is controlled by RLS (others hidden until Locked).
     const { data: picks, error: picksErr } = await supabase
@@ -207,6 +220,8 @@ export function LeaderboardClient({
         "user_id,golfer_tiers:golfer_tier_id(tier,odds_text,golfers:golfer_id(name,total_score,current_round,is_cut,status,r1_score,r2_score,r3_score,r4_score,r1_tee_at,r2_tee_at,r3_tee_at,r4_tee_at))"
       )
       .eq("tournament_id", tournamentId);
+
+    if (generation !== loadGenerationRef.current) return;
 
     if (picksErr) {
       setError(picksErr.message);
@@ -311,13 +326,27 @@ export function LeaderboardClient({
       return a.teamName.localeCompare(b.teamName);
     });
 
+    if (generation !== loadGenerationRef.current) return;
+
     setRows(computed);
     if (!options?.silent) {
       setLoading(false);
     }
-  }
+  }, [supabase, tournamentId]);
+
+  const scheduleLoad = useCallback(
+    (options?: { silent?: boolean }) => {
+      if (debouncedLoadTimerRef.current) clearTimeout(debouncedLoadTimerRef.current);
+      debouncedLoadTimerRef.current = setTimeout(() => {
+        debouncedLoadTimerRef.current = null;
+        void load(options);
+      }, 400);
+    },
+    [load]
+  );
 
   useEffect(() => {
+    forceSyncDoneRef.current = null;
     void load();
 
     const golfersChannel = supabase
@@ -325,39 +354,44 @@ export function LeaderboardClient({
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "golfers", filter: `tournament_id=eq.${tournamentId}` },
-        () => void load()
+        () => scheduleLoad({ silent: true })
       )
       .subscribe();
 
     const tournamentChannel = supabase
       .channel(`tournament:${tournamentId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "tournaments", filter: `id=eq.${tournamentId}` }, () =>
-        void load()
+        scheduleLoad({ silent: true })
       )
       .subscribe();
 
     return () => {
+      if (debouncedLoadTimerRef.current) clearTimeout(debouncedLoadTimerRef.current);
       void supabase.removeChannel(golfersChannel);
       void supabase.removeChannel(tournamentChannel);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tournamentId]);
+  }, [load, scheduleLoad, supabase, tournamentId]);
 
   useEffect(() => {
     if (tournament?.status !== "Live") return;
 
-    void (async () => {
-      try {
-        await fetch(`/api/t/${tournamentId}/refresh-scores?force=1`, { method: "POST" });
-      } catch {
-        // Best-effort; still reload current DB state below.
-      }
-      await load({ silent: true });
-    })();
+    const syncKey = `${tournamentId}:live`;
+    if (forceSyncDoneRef.current !== syncKey) {
+      forceSyncDoneRef.current = syncKey;
+      void (async () => {
+        try {
+          await fetch(`/api/t/${tournamentId}/refresh-scores?force=1`, { method: "POST" });
+        } catch {
+          // Best-effort; still reload current DB state below.
+        }
+        await load({ silent: true });
+      })();
+    }
 
     const intervalId = window.setInterval(() => {
       void (async () => {
-        if (lastSyncAt && !isSyncStale(lastSyncAt, 5)) {
+        const last = lastSyncAtRef.current;
+        if (last && !isSyncStale(last, 5)) {
           await load({ silent: true });
           return;
         }
@@ -370,8 +404,7 @@ export function LeaderboardClient({
       })();
     }, 60_000);
     return () => window.clearInterval(intervalId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tournament?.status, tournamentId, lastSyncAt]);
+  }, [load, tournament?.status, tournamentId]);
 
   return (
     <div className="space-y-4">

@@ -114,14 +114,17 @@ export async function triggerLeaderboardSync(
       const detail = direct.details.join("; ");
       if (direct.ok) {
         logSyncEvent("leaderboard_sync_direct_finished", { reason, detail, lastSuccessAt: direct.lastSuccessAt });
-        const github = await dispatchGithubWorkflow(reason);
-        if (github.ok) {
-          return {
-            ok: true,
-            mode: "direct",
-            detail: `${detail}; ${github.detail}`,
-            lastSuccessAt: direct.lastSuccessAt
-          };
+        const skipGithubDispatch = reason === "live_refresh_api" || reason === "leaderboard_visit";
+        if (!skipGithubDispatch) {
+          const github = await dispatchGithubWorkflow(reason);
+          if (github.ok) {
+            return {
+              ok: true,
+              mode: "direct",
+              detail: `${detail}; ${github.detail}`,
+              lastSuccessAt: direct.lastSuccessAt
+            };
+          }
         }
         return { ok: true, mode: "direct", detail, lastSuccessAt: direct.lastSuccessAt };
       }

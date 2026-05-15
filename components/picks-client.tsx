@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -103,6 +103,7 @@ export function PicksClient({
   const [liveTiers, setLiveTiers] = useState<TierRow[]>(tiers);
   const [liveTournamentStatus, setLiveTournamentStatus] = useState(tournamentStatus);
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
+  const lastSyncAtRef = useRef<string | null>(null);
   const [loadingLive, setLoadingLive] = useState(false);
   const playerTiersMode = isPlayerTiersMode(liveTournamentStatus);
 
@@ -266,7 +267,9 @@ export function PicksClient({
         .select("last_success_at")
         .eq("tournament_id", tournamentId)
         .maybeSingle();
-      setLastSyncAt(healthRow?.last_success_at ?? null);
+      const syncAt = healthRow?.last_success_at ?? null;
+      lastSyncAtRef.current = syncAt;
+      setLastSyncAt(syncAt);
 
       const { data: tRow } = await supabase
         .from("tournaments")
@@ -367,7 +370,8 @@ export function PicksClient({
 
     const intervalId = window.setInterval(() => {
       void (async () => {
-        if (lastSyncAt && !isSyncStale(lastSyncAt, 5)) {
+        const last = lastSyncAtRef.current;
+        if (last && !isSyncStale(last, 5)) {
           await loadLiveData({ silent: true });
           return;
         }
@@ -381,7 +385,7 @@ export function PicksClient({
     }, 60_000);
 
     return () => window.clearInterval(intervalId);
-  }, [lastSyncAt, liveTournamentStatus, loadLiveData, playerTiersMode, tournamentId]);
+  }, [liveTournamentStatus, loadLiveData, playerTiersMode, tournamentId]);
 
   const staleSyncMessage = useMemo(() => {
     if (!playerTiersMode || liveTournamentStatus !== "Live" || !lastSyncAt) return null;
