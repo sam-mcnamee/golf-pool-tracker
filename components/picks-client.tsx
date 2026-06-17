@@ -406,7 +406,7 @@ export function PicksClient({
             {tournamentName} · Status: {playerTiersMode ? liveTournamentStatus : tournamentStatus}.{" "}
             {playerTiersMode
               ? "Live golfer totals by tier. Compare pool picks to see the best and worst values."
-              : "Pick 1 golfer per tier. Submission is blocked after the pool locks."}
+              : "Pick 1 golfer per tier. Picks lock at first tee time (Thursday 4 AM ET until tee times are published)."}
           </p>
           {staleSyncMessage ? <p className="text-xs text-amber-700">{staleSyncMessage}</p> : null}
         </div>

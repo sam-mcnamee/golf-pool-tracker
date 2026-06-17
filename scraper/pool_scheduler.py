@@ -60,7 +60,8 @@ def main() -> int:
         if status == "Upcoming" and open_at and n >= open_at:
             next_status = "Open"
         elif status == "Open":
-            if (lock_at and n >= lock_at) or (first_tee_at and n >= first_tee_at):
+            deadline = first_tee_at or lock_at
+            if deadline and n >= deadline:
                 next_status = "Locked"
         elif status == "Locked":
             if first_tee_at and n >= first_tee_at:

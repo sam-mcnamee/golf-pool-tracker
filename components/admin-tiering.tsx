@@ -199,8 +199,8 @@ export function AdminTiering({
             {hasFrozenTiers ? (
               <>
                 Tier list is frozen for this tournament. Rules and manual bumps are locked; picks use{" "}
-                <code className="rounded bg-amber-100 px-1">golfer_tiers</code>. Entry lock timing still follows{" "}
-                <code className="rounded bg-amber-100 px-1">lock_at</code> / the pool scheduler.
+                <code className="rounded bg-amber-100 px-1">golfer_tiers</code>. Picks lock at first tee time;{" "}
+                <code className="rounded bg-amber-100 px-1">lock_at</code> is updated automatically when ESPN publishes tee times.
               </>
             ) : (
               <>

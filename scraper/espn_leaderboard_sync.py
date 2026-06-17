@@ -179,6 +179,20 @@ def resolve_first_tee_at_for_upsert(
     return None, starts_at_utc
 
 
+def resolve_lock_at_for_upsert(
+    first_tee_at_utc: Optional[str],
+    fallback_lock_at: datetime,
+) -> str:
+    """
+    Returns lock_at ISO string.
+    When first_tee_at is known use it directly; otherwise fall back to the
+    Thursday 4 AM ET deadline computed from the tournament start date.
+    """
+    if first_tee_at_utc is not None:
+        return first_tee_at_utc
+    return fallback_lock_at.astimezone(ZoneInfo("UTC")).isoformat()
+
+
 def maybe_update_tournament_first_tee_from_competitors(
     sb: Optional[Client],
     supabase_url: str,
@@ -215,7 +229,7 @@ def maybe_update_tournament_first_tee_from_competitors(
         return
 
     first_iso = _to_utc(earliest).isoformat()
-    patch = {"first_tee_at": first_iso, "starts_at": first_iso}
+    patch = {"first_tee_at": first_iso, "starts_at": first_iso, "lock_at": first_iso}
     if dry_run:
         print(json.dumps({"first_tee_update": patch, "tournament_id": tournament_id}))
         return
@@ -319,11 +333,13 @@ def ensure_current_tournament(sb: Client) -> Tuple[str, str]:
         starts_at_utc=starts_at_utc,
     )
 
+    effective_lock_at = resolve_lock_at_for_upsert(first_tee_at_utc, lock_at_et)
+
     upsert_row: Dict[str, Any] = {
         "name": name,
         "espn_event_id": espn_event_id,
         "open_at": open_at_et.astimezone(ZoneInfo("UTC")).isoformat(),
-        "lock_at": lock_at_et.astimezone(ZoneInfo("UTC")).isoformat(),
+        "lock_at": effective_lock_at,
         "starts_at": starts_at_utc,
         "ends_at": ends_at_utc,
     }
