@@ -1025,7 +1025,10 @@ def sync_leaderboard_once(
         for key in score_fields:
             val = getattr(u, key)
             if val is None:
-                val = prev.get(key)
+                # Cut players must have null total_score — don't restore old value from prev.
+                use_prev = not (key == "total_score" and u.is_cut is False)
+                if use_prev:
+                    val = prev.get(key)
             if val is not None:
                 row[key] = val
         for key in tee_fields:

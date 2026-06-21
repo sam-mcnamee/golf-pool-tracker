@@ -337,7 +337,9 @@ async function syncLeaderboardOnce(
       today_score: update.todayScore
     };
     for (const key of SCORE_FIELDS) {
-      const value = scoreMap[key] ?? prev?.[key] ?? null;
+      // Cut players must have null total_score — don't restore old value from prev.
+      const usePrev = !(key === "total_score" && update.isCut === false);
+      const value = scoreMap[key] ?? (usePrev ? prev?.[key] : null) ?? null;
       if (value !== null) row[key] = value;
     }
 
