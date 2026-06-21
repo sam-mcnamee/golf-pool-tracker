@@ -96,12 +96,16 @@ function buildSyncHealthPayload(args: {
   let hardFail = false;
 
   if (args.tournamentStatus === "Live" && inProgressTotal > 0) {
-    const fracNullTotal = nullTotalInProgress / Math.max(1, inProgressTotal);
+    // Exclude confirmed cut players — they correctly have null totalScore by design.
+    const activeInProgress = inProgress.filter((u) => u.isCut !== false);
+    const activeTotal = activeInProgress.length;
+    const nullTotalActive = activeInProgress.filter((u) => u.totalScore === null).length;
+    const fracNullTotal = nullTotalActive / Math.max(1, activeTotal);
     if (fracNullTotal > 0.2) {
       anomalies.push({
         type: "too_many_null_totals_in_progress",
-        count: nullTotalInProgress,
-        total: inProgressTotal
+        count: nullTotalActive,
+        total: activeTotal
       });
       hardFail = true;
     }

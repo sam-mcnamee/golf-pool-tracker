@@ -791,13 +791,18 @@ def build_sync_health_payload(
 
     is_live = tournament_status == "Live"
     # Record last_success_at only when the run had no error and validations pass.
+    # Exclude confirmed cut players (is_cut=False) from null-total checks — they
+    # correctly have null total_score by design and shouldn't trip the threshold.
     hard_fail = False
     if is_live and in_prog_total > 0:
-        frac_null_total = null_total_in_prog / max(1, in_prog_total)
+        active_in_prog = [u for u in in_progress if u.is_cut is not False]
+        active_total = len(active_in_prog)
+        null_total_active = sum(1 for u in active_in_prog if u.total_score is None)
+        frac_null_total = null_total_active / max(1, active_total)
         frac_null_thru = null_thru_in_prog / max(1, in_prog_total)
         if frac_null_total > 0.2:
             anomalies.append(
-                {"type": "too_many_null_totals_in_progress", "count": null_total_in_prog, "total": in_prog_total}
+                {"type": "too_many_null_totals_in_progress", "count": null_total_active, "total": active_total}
             )
             hard_fail = True
         if frac_null_thru > 0.5:
