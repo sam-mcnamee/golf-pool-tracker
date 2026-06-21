@@ -671,15 +671,20 @@ def competitor_to_update(row: Dict[str, Any]) -> Optional[GolferUpdate]:
                 if rel is not None:
                     round_scores[period_raw] = rel
 
-    # Weekend rounds implies made cut.
-    if is_cut is None and isinstance(linescores, list) and len(linescores) >= 3:
-        is_cut = True
-
-    # Missed cut / withdrawn / disqualified are explicit "out" statuses.
+    # Explicit status signals take priority over linescore count inference.
+    # ESPN sends "STATUS_CUT" in status.type.name — check for that pattern before
+    # counting linescores, because ESPN sometimes sends a blank period-3 linescore
+    # for cut players which would otherwise make them appear to have made the cut.
     if is_cut is None and status_text:
         st = status_text.strip().upper()
-        if st in ("CUT", "WD", "DQ"):
+        if st in ("CUT", "MC", "STATUS_CUT", "WD", "STATUS_WD", "DQ", "STATUS_DQ"):
             is_cut = False
+
+    # 3+ rounds with numeric scores = weekend play started = made the cut.
+    # Use round_scores (parsed numeric values) rather than len(linescores)
+    # so blank ESPN period-3 entries don't falsely trigger this.
+    if is_cut is None and len(round_scores) >= 3:
+        is_cut = True
 
     # Cut players must not contribute a numeric score to best-4 pool totals.
     if is_cut is False:

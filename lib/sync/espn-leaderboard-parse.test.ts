@@ -67,6 +67,27 @@ describe("competitorToUpdate", () => {
     assert.equal(update.totalScore, null);
     assert.equal(update.isCut, false);
   });
+
+  it("detects STATUS_CUT from status.type.name and nulls total_score from scoreToPar", () => {
+    // ESPN sends STATUS_CUT in status.type.name, a numeric scoreToPar (2-round total),
+    // and sometimes a blank period-3 linescore — all three previously caused false "made cut".
+    const row = {
+      athlete: { id: "3", displayName: "Viktor Hovland" },
+      score: { displayValue: "+5" },
+      statistics: [{ name: "scoreToPar", displayValue: "+5" }],
+      status: { type: { name: "STATUS_CUT" } },
+      linescores: [
+        { period: 1, displayValue: "+6", value: 77 },
+        { period: 2, displayValue: "-1", value: 70 },
+        { period: 3, displayValue: "", value: 0 }
+      ]
+    };
+    const update = competitorToUpdate(row);
+    assert.ok(update);
+    assert.equal(update.isCut, false, "STATUS_CUT should set isCut=false");
+    assert.equal(update.totalScore, null, "cut players must have null totalScore");
+    assert.equal(update.r3Score, null, "blank period-3 linescore must not set r3Score");
+  });
 });
 
 describe("parseTotalScore", () => {

@@ -277,12 +277,21 @@ export function competitorToUpdate(row: JsonRecord): GolferUpdate | null {
     }
   }
 
-  if (isCut === null && Array.isArray(linescores) && linescores.length >= 3) {
-    isCut = true;
-  }
+  // Explicit status signals take priority over linescore count inference.
+  // ESPN sends "STATUS_CUT" in status.type.name — check for that pattern before
+  // counting linescores, because ESPN sometimes sends a blank period-3 linescore
+  // for cut players which would otherwise make them appear to have made the cut.
   if (isCut === null && statusText) {
     const st = statusText.trim().toUpperCase();
-    if (st === "CUT" || st === "WD" || st === "DQ") isCut = false;
+    if (st === "CUT" || st === "MC" || st === "STATUS_CUT" || st === "WD" || st === "STATUS_WD" || st === "DQ" || st === "STATUS_DQ") {
+      isCut = false;
+    }
+  }
+  // 3+ rounds with numeric scores = weekend play started = made the cut.
+  // Use roundScores.size (parsed numeric values) rather than linescores.length
+  // so blank ESPN period-3 entries don't falsely trigger this.
+  if (isCut === null && roundScores.size >= 3) {
+    isCut = true;
   }
 
   // Cut players must not contribute a numeric score to best-4 pool totals.
