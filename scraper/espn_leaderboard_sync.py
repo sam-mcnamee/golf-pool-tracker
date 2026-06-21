@@ -980,7 +980,8 @@ def sync_leaderboard_once(
         (u.current_round is not None and u.current_round >= 3) or (u.r3_score is not None) or (u.r4_score is not None)
         for u in updates
     )
-    any_explicit_cut = any(((u.status or "").strip().upper() == "CUT") and (u.is_cut is False) for u in updates)
+    cut_status_terms = {"CUT", "MC", "STATUS_CUT", "WD", "STATUS_WD", "DQ", "STATUS_DQ"}
+    any_explicit_cut = any(((u.status or "").strip().upper() in cut_status_terms) and (u.is_cut is False) for u in updates)
     cut_complete = any_weekend_started and any_explicit_cut
 
     if dry_run:

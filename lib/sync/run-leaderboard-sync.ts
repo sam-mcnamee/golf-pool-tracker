@@ -297,8 +297,9 @@ async function syncLeaderboardOnce(
       update.r3Score !== null ||
       update.r4Score !== null
   );
+  const CUT_STATUS_TERMS = new Set(["CUT", "MC", "STATUS_CUT", "WD", "STATUS_WD", "DQ", "STATUS_DQ"]);
   const anyExplicitCut = updates.some(
-    (update) => (update.status ?? "").trim().toUpperCase() === "CUT" && update.isCut === false
+    (update) => CUT_STATUS_TERMS.has((update.status ?? "").trim().toUpperCase()) && update.isCut === false
   );
   const cutComplete = anyWeekendStarted && anyExplicitCut;
 
