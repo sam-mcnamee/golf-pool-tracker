@@ -681,6 +681,10 @@ def competitor_to_update(row: Dict[str, Any]) -> Optional[GolferUpdate]:
         if st in ("CUT", "WD", "DQ"):
             is_cut = False
 
+    # Cut players must not contribute a numeric score to best-4 pool totals.
+    if is_cut is False:
+        total_score = None
+
     today_rel = today_score_from_linescores(linescores)
 
     # ESPN leaderboard payload stores progress in row["status"] (not top-level).
@@ -986,7 +990,7 @@ def sync_leaderboard_once(
             sb.table("golfers")
             .select(
                 "espn_athlete_id,r1_tee_at,r2_tee_at,r3_tee_at,r4_tee_at,"
-                "r1_score,r2_score,r3_score,r4_score,total_score,today_score"
+                "r1_score,r2_score,r3_score,r4_score,total_score,today_score,is_cut"
             )
             .eq("tournament_id", tournament_id)
             .execute()
@@ -1009,7 +1013,8 @@ def sync_leaderboard_once(
             "current_round": u.current_round,
             "thru": u.thru,
             "status": u.status,
-            "is_cut": u.is_cut,
+            # Preserve is_cut=false once set — never regress to null from a later sync.
+            "is_cut": u.is_cut if u.is_cut is not None else existing_by_athlete.get(u.espn_athlete_id, {}).get("is_cut"),
         }
         prev = existing_by_athlete.get(u.espn_athlete_id, {})
         for key in score_fields:

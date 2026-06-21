@@ -285,6 +285,9 @@ export function competitorToUpdate(row: JsonRecord): GolferUpdate | null {
     if (st === "CUT" || st === "WD" || st === "DQ") isCut = false;
   }
 
+  // Cut players must not contribute a numeric score to best-4 pool totals.
+  const finalTotalScore = isCut === false ? null : totalScore;
+
   const todayScore = todayScoreFromLinescores(linescores);
 
   let thru: string | null = null;
@@ -334,7 +337,7 @@ export function competitorToUpdate(row: JsonRecord): GolferUpdate | null {
     r2Score: roundScores.get(2) ?? null,
     r3Score: roundScores.get(3) ?? null,
     r4Score: roundScores.get(4) ?? null,
-    totalScore,
+    totalScore: finalTotalScore,
     todayScore,
     currentRound,
     thru,

@@ -41,6 +41,7 @@ type ExistingGolferRow = {
   r4_score: number | null;
   total_score: number | null;
   today_score: number | null;
+  is_cut: boolean | null;
 };
 
 type GolferAuthorityRow = {
@@ -304,7 +305,7 @@ async function syncLeaderboardOnce(
   const { data: existingRows, error: existingError } = await supabase
     .from("golfers")
     .select(
-      "espn_athlete_id,r1_tee_at,r2_tee_at,r3_tee_at,r4_tee_at,r1_score,r2_score,r3_score,r4_score,total_score,today_score"
+      "espn_athlete_id,r1_tee_at,r2_tee_at,r3_tee_at,r4_tee_at,r1_score,r2_score,r3_score,r4_score,total_score,today_score,is_cut"
     )
     .eq("tournament_id", tournamentId);
   if (existingError) throw new Error(existingError.message);
@@ -323,7 +324,8 @@ async function syncLeaderboardOnce(
       current_round: update.currentRound,
       thru: update.thru,
       status: update.status,
-      is_cut: update.isCut
+      // Preserve is_cut=false once set — never regress to null from a later sync.
+      is_cut: update.isCut !== null ? update.isCut : (prev?.is_cut ?? null)
     };
 
     const scoreMap: Record<(typeof SCORE_FIELDS)[number], number | null> = {

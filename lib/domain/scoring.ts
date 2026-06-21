@@ -6,7 +6,10 @@ export type PickedGolfer = {
 };
 
 export function computeBest4(picks: PickedGolfer[]) {
-  const numericScores = picks.map((p) => p.total_score).filter((s): s is number => typeof s === "number");
+  const numericScores = picks
+    .filter((p) => p.is_cut !== false)
+    .map((p) => p.total_score)
+    .filter((s): s is number => typeof s === "number");
   numericScores.sort((a, b) => a - b);
   const best4 = numericScores.slice(0, 4);
   const sum = best4.reduce((acc, s) => acc + s, 0);
