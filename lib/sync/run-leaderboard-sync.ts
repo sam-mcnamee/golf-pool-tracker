@@ -322,6 +322,15 @@ async function syncLeaderboardOnce(
 
   const golferRows = updates.map((update) => {
     const prev = existingByAthlete.get(update.espnAthleteId) ?? null;
+    // Resolve final is_cut: explicit parse result wins; fall back to previous DB value;
+    // if cut is complete and player has R1+R2 scores but no explicit cut status, infer made-cut.
+    const isCutFinal = (() => {
+      if (update.isCut !== null) return update.isCut;
+      if (prev?.is_cut !== null && prev?.is_cut !== undefined) return prev.is_cut;
+      if (cutComplete && update.r1Score !== null && update.r2Score !== null) return true;
+      return null;
+    })();
+
     const row: Record<string, unknown> = {
       tournament_id: tournamentId,
       espn_athlete_id: update.espnAthleteId,
@@ -329,8 +338,7 @@ async function syncLeaderboardOnce(
       current_round: update.currentRound,
       thru: update.thru,
       status: update.status,
-      // Preserve is_cut=false once set — never regress to null from a later sync.
-      is_cut: update.isCut !== null ? update.isCut : (prev?.is_cut ?? null)
+      is_cut: isCutFinal
     };
 
     const scoreMap: Record<(typeof SCORE_FIELDS)[number], number | null> = {
@@ -343,7 +351,7 @@ async function syncLeaderboardOnce(
     };
     for (const key of SCORE_FIELDS) {
       // Cut players must have null total_score — don't restore old value from prev.
-      const usePrev = !(key === "total_score" && update.isCut === false);
+      const usePrev = !(key === "total_score" && isCutFinal === false);
       const value = scoreMap[key] ?? (usePrev ? prev?.[key] : null) ?? null;
       if (value !== null) row[key] = value;
     }

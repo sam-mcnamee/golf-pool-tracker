@@ -1017,6 +1017,19 @@ def sync_leaderboard_once(
     # Upsert golfers into tournament.
     golfer_rows = []
     for u in updates:
+        prev = existing_by_athlete.get(u.espn_athlete_id, {})
+
+        # Resolve final is_cut: explicit parse result wins; fall back to previous DB value;
+        # if cut is complete and player has R1+R2 scores but no explicit cut status, infer made-cut.
+        if u.is_cut is not None:
+            is_cut_final = u.is_cut
+        elif prev.get("is_cut") is not None:
+            is_cut_final = prev.get("is_cut")
+        elif cut_complete and u.r1_score is not None and u.r2_score is not None:
+            is_cut_final = True
+        else:
+            is_cut_final = None
+
         row: Dict[str, Any] = {
             "tournament_id": tournament_id,
             "espn_athlete_id": u.espn_athlete_id,
@@ -1024,15 +1037,13 @@ def sync_leaderboard_once(
             "current_round": u.current_round,
             "thru": u.thru,
             "status": u.status,
-            # Preserve is_cut=false once set — never regress to null from a later sync.
-            "is_cut": u.is_cut if u.is_cut is not None else existing_by_athlete.get(u.espn_athlete_id, {}).get("is_cut"),
+            "is_cut": is_cut_final,
         }
-        prev = existing_by_athlete.get(u.espn_athlete_id, {})
         for key in score_fields:
             val = getattr(u, key)
             if val is None:
                 # Cut players must have null total_score — don't restore old value from prev.
-                use_prev = not (key == "total_score" and u.is_cut is False)
+                use_prev = not (key == "total_score" and is_cut_final is False)
                 if use_prev:
                     val = prev.get(key)
             if val is not None:
